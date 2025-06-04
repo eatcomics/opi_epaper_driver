@@ -33,7 +33,7 @@ int main (void) {
     // Send image buffer to display and then free the image
     memset(image, 0xFF, buffer_size);
     EPD_7IN5_V2_Display(image);
-    printf("Should be an image now!");
+    printf("Should be an image now!\n");
     free(image);
 
     // Sleep the Display

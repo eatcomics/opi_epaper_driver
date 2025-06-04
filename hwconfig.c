@@ -298,7 +298,8 @@ void DEV_GPIO_Init(void)
    	EPD_RST_PIN = 259;
     	EPD_DC_PIN = 256;
     	EPD_CS_PIN = 229; // I assume I use pin number for these
-    	EPD_PWR_PIN = 1; // not sure what to put here since it's on 3.3v
+    	EPD_PWR_PIN = 264; // not sure what to put here since it's on 3.3v
+	EPD_BUSY_PIN = 260;
     	EPD_MOSI_PIN = 231;
     	EPD_SCLK_PIN = 233;
 
