@@ -28,6 +28,7 @@
 #
 ******************************************************************************/
 #include "hwconfig.h"
+#include <lgpio.h>
 #include "lgpio_gpio.h"
 
 #define RPI
@@ -461,7 +462,7 @@ UBYTE DEV_Module_Init(void)
     SPI_Handle = lgSpiOpen(0, 0, 10000000, 0);
     DEV_GPIO_Init();
 #elif USE_DEV_LIB
-	printf("Write and read /dev/spidev0.0 \r\n");
+	printf("Write and read /dev/spidev1.0 \r\n");
 //    GPIOD_Export();
 	DEV_GPIO_Init();
 	DEV_HARDWARE_SPI_begin("/dev/spidev1.0");
@@ -477,9 +478,9 @@ UBYTE DEV_Module_Init(void)
 	SYSFS_software_spi_setDataMode(SOFTWARE_SPI_Mode0);
 	SYSFS_software_spi_setClockDivider(SOFTWARE_SPI_CLOCK_DIV4);
 #elif USE_HARDWARE_LIB
-	printf("Write and read /dev/spidev0.0 \r\n");
+	printf("Write and read /dev/spidev1.0 \r\n");
 	DEV_GPIO_Init();
-	DEV_HARDWARE_SPI_begin("/dev/spidev0.0");
+	DEV_HARDWARE_SPI_begin("/dev/spidev1.0");
 #endif
 
 #endif

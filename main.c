@@ -9,8 +9,6 @@ int screenwidth = 800;
 int screenheight = 480;
 
 int main (void) {
-    
-    // Couldn't init hardware, this may need edited cause spidev
     if (DEV_Module_Init() != 0) {
         printf("Hardware init failed.\n");
     }
@@ -33,7 +31,6 @@ int main (void) {
     // Send image buffer to display and then free the image
     memset(image, 0xFF, buffer_size);
     EPD_7IN5_V2_Display(image);
-    printf("Should be an image now!\n");
     free(image);
 
     // Sleep the Display

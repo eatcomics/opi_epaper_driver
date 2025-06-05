@@ -56,6 +56,9 @@
 #include <string.h>
 #include "Debug.h"
 
+#define LFLAGS 0
+#define NUM_MAXBUF 256
+
 #ifdef RPI
     #ifdef USE_BCM2835_LIB
         #include <bcm2835.h>
