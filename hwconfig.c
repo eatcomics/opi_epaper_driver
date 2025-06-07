@@ -31,10 +31,9 @@
 #include <lgpio.h>
 #include "lgpio_gpio.h"
 
-#if USE_LGPIO_LIB
+// For use with lgpio
 int GPIO_Handle;
 int SPI_Handle;
-#endif
 
 /**
  * GPIO
@@ -125,12 +124,12 @@ static int DEV_Equipment_Testing(void)
 
 void DEV_GPIO_Init(void)
 {
-	// OrangePi GPIO Pin numbers
-   	EPD_RST_PIN = 	259;
+    // OrangePi GPIO Pin numbers
+    EPD_RST_PIN = 	259;
     EPD_DC_PIN = 	256;
-	EPD_CS_PIN = 	229;
-	EPD_PWR_PIN = 	264; // not sure what to put here since it's on 3.3v
-	EPD_BUSY_PIN = 	260;
+    EPD_CS_PIN = 	229;
+    EPD_PWR_PIN = 	264; // not sure what to put here since it's on 3.3v
+    EPD_BUSY_PIN = 	260;
     EPD_MOSI_PIN = 	231;
     EPD_SCLK_PIN = 	233;
 
@@ -203,36 +202,18 @@ Info:
 ******************************************************************************/
 UBYTE DEV_Module_Init(void)
 {
-//    char buffer[NUM_MAXBUF];
-//    FILE *fp;
-//    fp = popen("cat /proc/cpuinfo | grep 'Raspberry Pi 5'", "r");
-//    if (fp == NULL) {
-//        Debug("It is not possible to determine the model of the Raspberry PI\n");
-//        return -1;
-//    }
+    GPIO_Handle = lgGpiochipOpen(0);
+    if (GPIO_Handle < 0)
+    {
+        Debug( "gpiochip0 Export Failed\n");
+        return -1;
+    }
 
-    if(fgets(buffer, sizeof(buffer), fp) != NULL)
-    {
-        GPIO_Handle = lgGpiochipOpen(4);
-        if (GPIO_Handle < 0)
-        {
-            Debug( "gpiochip4 Export Failed\n");
-            return -1;
-        }
-    }
-    else
-    {
-        GPIO_Handle = lgGpiochipOpen(0);
-        if (GPIO_Handle < 0)
-        {
-            Debug( "gpiochip0 Export Failed\n");
-            return -1;
-        }
-    }
-    SPI_Handle = lgSpiOpen(0, 0, 10000000, 0);
+    SPI_Handle = lgSpiOpen(1, 0, 4000000, 0);
     DEV_GPIO_Init();
     printf("/***********************************/ \r\n");
-	return 0;
+    
+    return 0;
 }
 
 /******************************************************************************
