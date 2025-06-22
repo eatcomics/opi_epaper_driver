@@ -128,7 +128,9 @@ static int damage_callback(VTermRect rect, void *user) {
 
     for (int row = rect.start_row; row < rect.end_row; row++) {
         for (int col = rect.start_col; col < rect.end_col; col++) {
-            if (vterm_screen_get_cell(screen, row, col, &cell)) {
+            VTermPos pos = {.row = row, .col = col};
+            VTermScreenCell cell;
+            if (vterm_screen_get_cell(screen, pos, &cell)) {
                 render_cell(col, row, &cell);
             }
         }
