@@ -1,4 +1,5 @@
 #include "keymap.h"
+#include <vterm.h>
 #include <linux/input-event-codes.h>
 
 VTermKey convert_keycode_to_vtermkey(uint32_t code) {
