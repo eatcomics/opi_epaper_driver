@@ -74,7 +74,8 @@ void vterm_redraw(uint8_t *buffer) {
     VTermScreenCell cell;
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
-            if (vterm_screen_get_cell(screen, row, col, &cell)) {
+            VTermPos pos = {.row = row, .col = col};
+            if (vterm_screen_get_cell(screen, pos, &cell)) {
                 render_cell(col, row, &cell);
             }
         }
