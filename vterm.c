@@ -28,6 +28,33 @@ static int pty_fd = -1;
 static void render_cell(int col, int row, const VTermScreenCell *cell);
 static int damage_callback(VTermRect rect, void *user);
 
+
+// Utility function that's optional in libvterm. Putting it here so you don't
+// have to recompile it with the option
+int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
+    if (codepoint < 0x80) {
+        buffer[0] = codepoint;
+        return 1;
+    } else if (codepoint < 0x800) {
+        buffer[0] = 0xC0 | (codepoint >> 6);
+        buffer[1] = 0x80 | (codepoint & 0x3F);
+        return 2;
+    } else if (codepoint < 0x10000) {
+        buffer[0] = 0xE0 | (codepoint >> 12);
+        buffer[1] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buffer[2] = 0x80 | (codepoint & 0x3F);
+        return 3;
+    } else if (codepoint < 0x110000) {
+        buffer[0] = 0xF0 | (codepoint >> 18);
+        buffer[1] = 0x80 | ((codepoint >> 12) & 0x3F);
+        buffer[2] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buffer[3] = 0x80 | (codepoint & 0x3F);
+        return 4;
+    } else {
+        return 0;
+    }
+}
+
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     term_rows = rows;
     term_cols = cols;
