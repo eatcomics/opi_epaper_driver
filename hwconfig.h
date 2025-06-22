@@ -61,7 +61,6 @@
 
 #include <lgpio.h>
 #define LFLAGS 0
-#define NUM_MAXBUF  4
 
 /**
  * data
