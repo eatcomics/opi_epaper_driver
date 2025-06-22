@@ -1,4 +1,3 @@
-#include "EPD_7in5_V2.h"
 #include "pty.h"
 #include "vterm.h"
 #include "keyboard.h"

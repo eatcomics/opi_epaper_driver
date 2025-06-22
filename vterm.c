@@ -1,11 +1,13 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
 #include "font8x16.h"
+#include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
@@ -60,11 +62,11 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     char buf[16];
     int len;
 
-    if (keycode < 128 && isprint(keycode)) {
-        len = vterm_keyboard_unichar(vterm, keycode, modifiers);
+    if (keycode < 128 && isprint((unsigned_char) keycode)) {
+        len = vterm_keyboard_unichar(vterm, keycode, modifiers, buf, sizeof(buf));
     } else {
         VTermKey key = convert_keycode_to_vtermkey(keycode); 
-        len = vterm_keyboard_key(vterm, key, modifiers);
+        len = vterm_keyboard_key(vterm, key, modifiers, buf, sizeof(buf));
     }
 
     if (len > 0) {
