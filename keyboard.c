@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <libudev.h>
+#include <vterm.h>
 
 static int kb_fd = -1;
 
