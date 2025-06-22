@@ -50,6 +50,8 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
             exit(1);
         }
 
+        printf("DEBUG: ptsname returned %s\n", slave_name);
+
         int slave_fd = open(slave_name, O_RDWR);
         if (slave_fd < 0) {
             perror("open slave pty");
