@@ -59,19 +59,14 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
-    char buf[16];
-    int len;
-
-    if (keycode < 128 && isprint((unsigned_char) keycode)) {
-        len = vterm_keyboard_unichar(vterm, keycode, modifiers, buf, sizeof(buf));
+    if (keycode < 128 && isprint((unsigned char)keycode)) {
+       char utf8[8];
+       int n = vterm_unicode_to_utf8(keycode, utf8);
+       write(pty_fd, utf8, n);
     } else {
-        VTermKey key = convert_keycode_to_vtermkey(keycode); 
-        len = vterm_keyboard_key(vterm, key, modifiers, buf, sizeof(buf));
-    }
-
-    if (len > 0) {
-        write(pty_fd, buf, len);
-    }
+        VTermKey key = convert_keycode_to_vtermkey(keycode);
+        vterm_keyboard_key(vterm, key, modifiers); // this just updates vterm state
+    } 
 }
 
 void vterm_redraw(uint8_t *buffer) {
