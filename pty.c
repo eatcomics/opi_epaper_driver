@@ -10,6 +10,16 @@
 #include <sys/wait.h>
 #include <errno.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <termios.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <errno.h>
+
 int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int cols) {
     int master_fd = posix_openpt(O_RDWR | O_NOCTTY);
     if (master_fd < 0) {
@@ -23,13 +33,6 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
         return -1;
     }
 
-    char *slave_name = ptsname(master_fd);
-    if (!slave_name) {
-        perror("ptsname");
-        close(master_fd);
-        return -1;
-    }
-
     pid_t pid = fork();
     if (pid < 0) {
         perror("fork");
@@ -38,8 +41,14 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
     }
 
     if (pid == 0) {
-        // Child process
+        // CHILD PROCESS
         setsid(); // Become session leader
+
+        char *slave_name = ptsname(master_fd);
+        if (!slave_name) {
+            perror("child ptsname");
+            exit(1);
+        }
 
         int slave_fd = open(slave_name, O_RDWR);
         if (slave_fd < 0) {
@@ -63,16 +72,15 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
         if (slave_fd > STDERR_FILENO)
             close(slave_fd);
 
-        // Set TERM env
         setenv("TERM", "xterm-256color", 1);
-
         execvp(program, argv);
         perror("execvp failed");
         exit(1);
     }
 
-    // Parent returns master FD
+    // PARENT returns master fd
     return master_fd;
 }
+
 
 
