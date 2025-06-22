@@ -11,7 +11,7 @@
 #define CELL_HEIGHT 16;
 
 #define COLOR_WHITE 0;
-#define COLOW_BLACK 1;
+#define COLOR_BLACK 1;
 
 // Internal buffer
 static uint8_t *vterm_buffer = NULL;
