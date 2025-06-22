@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -DUSE_DEV_LIB -DUSE_LGPIO_LIB
-LIBS = -lgpiod -llgpio
+LIBS = -lgpiod -llgpio -ludev
 
 OBJS = main.o hwconfig.o EPD_7in5_V2.o lgpio_gpio.o
 
