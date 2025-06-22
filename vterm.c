@@ -1,9 +1,17 @@
 #include "vterm.h"
+#include "EPD_7in5_V2.h"
+#include "font8x16.h"
 #include <vterm.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#define CELL_WIDTH 8;
+#define CELL_HEIGHT 16;
+
+#define COLOR_WHITE 0;
+#define COLOW_BLACK 1;
 
 // Internal buffer
 static uint8_t *vterm_buffer = NULL;
@@ -80,6 +88,38 @@ void vterm_redraw(uint8_t *buffer) {
 void flush_display(void) {
     if (vterm_buffer) {
         EPD_7IN5_V2_Display(vterm_buffer);
+    }
+}
+
+void set_pixel(int x, int y, int color) {
+    if (x < 0 || x >= EPD_7IN5_V2_WIDTH || y < 0 || y >= EPD_7IN5_V2_HEIGHT) return;
+    int byte_index = (y * EPD_7IN5_V2_WIDTH + x) / 8;
+    int bit_index = 7 - (x % 8);
+    if (color)
+        vterm_buffer[byte_index] &= ~(1 << bit_index); // black
+    else
+        vterm_buffer[byte_index] |= (1 << bit_index);  // white
+}
+
+void draw_rect(int x, int y, int w, int h, int color) {
+    for (int dy = 0; dy < h; dy++) {
+        for (int dx = 0; dx < w; dx++) {
+            set_pixel(x + dx, y + dy, color);
+        }
+    }
+}
+
+void draw_char(int x, int y, char c, int color) {
+    extern const uint8_t font8x16[][16]; // You’ll need to supply this
+
+    const uint8_t *glyph = font8x16[(uint8_t)c];
+    for (int row = 0; row < CELL_HEIGHT; row++) {
+        uint8_t rowdata = glyph[row];
+        for (int col = 0; col < CELL_WIDTH; col++) {
+            if (rowdata & (1 << (7 - col))) {
+                set_pixel(x + col, y + row, color);
+            }
+        }
     }
 }
 
