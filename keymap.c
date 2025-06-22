@@ -18,7 +18,7 @@ VTermKey convert_keycode_to_vtermkey(uint32_t code) {
         case KEY_END: return VTERM_KEY_END;
         case KEY_PAGEUP: return VTERM_KEY_PAGEUP;
         case KEY_PAGEDOWN: return VTERM_KEY_PAGEDOWN;
-        case KEY_INSERT: return VTERM_KEY_INSERT;
+        case KEY_INSERT: return VTERM_KEY_INS;
         case KEY_DELETE: return VTERM_KEY_DEL;
 
         case KEY_F1: return VTERM_KEY_FUNCTION(1);
