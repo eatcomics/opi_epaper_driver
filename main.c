@@ -36,7 +36,7 @@ int main (void) {
     EPD_7IN5_V2_Clear();
 
     // Only buffer for the moment, but I'll configure double buffering later 
-    size_t buffer_size = screen_width * screen_height / 8;
+    size_t buffer_size = (screen_width * screen_height / 8);
     uint8_t *image = (uint8_t *)malloc(buffer_size);
     if (!image) {
         printf("Failed to allocate memory\n");
@@ -59,7 +59,7 @@ int main (void) {
     char *shell_argv[] = {shell, NULL};
 
     int term_cols = screen_width/8;
-    int term_rows = screen_height/8;
+    int term_rows = screen_height/16;
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
     // Init libvterm here
