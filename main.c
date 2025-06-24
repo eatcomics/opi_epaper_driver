@@ -85,6 +85,9 @@ int main (void) {
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
     //     reads PTY, and updates the e-ink screen with either a partial, or full refresh
+    const char *msg = "SHELL START FAILED?\n";
+    vterm_feed_output(msg, strlen(msg), image);
+    vterm_redraw(image);
     while (run) {
         // Handle keyboard
         uint32_t *key = &keycode;
