@@ -3,7 +3,6 @@
 #include "keyboard.h"
 #include "keymap.h"
 #include "hwconfig.h"
-//#include "lgpio_gpio.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +22,7 @@ unsigned long current_millis() {
 int screen_width = 800;
 int screen_height = 480;
 
+/*
 extern void draw_char(int x, int y, char ch, int color); // from vterm.c or display.c
 
 void draw_test_message(uint8_t *buffer) {
@@ -36,6 +36,7 @@ void draw_test_message(uint8_t *buffer) {
 
     EPD_7IN5_V2_Display(buffer); // force immediate screen update
 }
+*/
 
 // MAIN!
 int main (void) {
@@ -95,7 +96,7 @@ int main (void) {
 
         if (pty_fd < 0) {
             fprintf(stderr, "Failed to open PTY!\n");
-            draw_test_message(image); // show failure message
+            //draw_test_message(image); // show failure message
             return 1;
         }
 
