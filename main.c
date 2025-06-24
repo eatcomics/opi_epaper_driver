@@ -93,7 +93,6 @@ int main (void) {
             last_input_time = current_millis();
         }
 
-        pty_fd = setup_pty_and_spawn("/bin/bash", args, term_rows, term_cols);
         if (pty_fd < 0) {
             fprintf(stderr, "Failed to open PTY!\n");
             draw_test_message(image); // show failure message
