@@ -65,7 +65,9 @@ int main (void) {
     int modifiers;
 
     keyboard_init();
+    printf("Just a test\n");
     
+    /*
     // Set up for PTY
     char *shell = getenv("SHELL");
     if (!shell){
@@ -95,7 +97,7 @@ int main (void) {
         vterm_feed_output(buf, n, image);
         last_input_time = current_millis();
     }
-
+    */
     int run = 1;
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
