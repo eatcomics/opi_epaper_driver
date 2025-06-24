@@ -69,7 +69,10 @@ int main (void) {
     int ret = poll(fds, 1, 0); // non-blocking poll
 
     // Init libvterm here
-    //vterm_init(term_cols, term_rows, pty_fd, image);
+    vterm_init(term_cols, term_rows, pty_fd, image);
+
+    const char *msg = "TEST: HELLO FROM PTY\n";
+    write(pty_fd, msg, strlen(msg));
     
     if (pty_fd < 0) {
         fprintf(stderr, "Failed to open PTY!\n");
