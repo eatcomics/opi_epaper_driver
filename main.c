@@ -77,13 +77,6 @@ int main (void) {
     int term_rows = screen_height/16;
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
-    if (pty_fd < 0) {
-        fprintf(stderr, "Failed to open PTY!\n");
-        draw_test_message(eink_buffer); // show failure message
-        return 1;
-    }
-
-
     // Init libvterm here
     vterm_init(term_cols, term_rows, pty_fd, image);
 
@@ -99,6 +92,14 @@ int main (void) {
             vterm_process_input(keycode, modifiers);
             last_input_time = current_millis();
         }
+
+        pty_fd = setup_pty_and_spawn("/bin/bash", args, term_rows, term_cols);
+        if (pty_fd < 0) {
+            fprintf(stderr, "Failed to open PTY!\n");
+            draw_test_message(image); // show failure message
+            return 1;
+        }
+
 
         // Handle PTY output
         char buf[4096];
