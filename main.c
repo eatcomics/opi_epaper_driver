@@ -85,6 +85,7 @@ int main (void) {
             last_input_time = current_millis();
         } else if (n == 0) {
             fprintf(stderr, "PTY closed (EOF)\n");
+        }
     }
   
     int run = 1;
