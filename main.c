@@ -3,11 +3,12 @@
 #include "keyboard.h"
 #include "keymap.h"
 #include "hwconfig.h"
-#include "lgpio_gpio.h"
+//#include "lgpio_gpio.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include "EPD_7in5_V2.h"
 
 unsigned long last_input_time = 0;
 #define QUIET_TIMEOUT_MS 1200
@@ -21,6 +22,20 @@ unsigned long current_millis() {
 // Globals
 int screen_width = 800;
 int screen_height = 480;
+
+extern void draw_char(int x, int y, char ch, int color); // from vterm.c or display.c
+
+void draw_test_message(uint8_t *buffer) {
+    const char *msg = "UNABLE TO OPEN PTY";
+    int x = 10;
+    int y = 10;
+
+    for (int i = 0; msg[i] != '\0'; i++) {
+        draw_char(x + i * CELL_WIDTH, y, msg[i], COLOR_BLACK);
+    }
+
+    EPD_7IN5_V2_Display(buffer); // force immediate screen update
+}
 
 // MAIN!
 int main (void) {
@@ -61,6 +76,13 @@ int main (void) {
     int term_cols = screen_width/8;
     int term_rows = screen_height/16;
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
+
+    if (pty_fd < 0) {
+        fprintf(stderr, "Failed to open PTY!\n");
+        draw_test_message(eink_buffer); // show failure message
+        return 1;
+    }
+
 
     // Init libvterm here
     vterm_init(term_cols, term_rows, pty_fd, image);

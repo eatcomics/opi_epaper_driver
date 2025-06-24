@@ -8,17 +8,16 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <errno.h>
-
+//#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <termios.h>
-#include <string.h>
+//#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
-#include <errno.h>
+//#include <errno.h>
 
 int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int cols) {
     int master_fd = posix_openpt(O_RDWR | O_NOCTTY);
