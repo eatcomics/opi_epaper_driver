@@ -22,22 +22,6 @@ unsigned long current_millis() {
 int screen_width = 800;
 int screen_height = 480;
 
-/*
-extern void draw_char(int x, int y, char ch, int color); // from vterm.c or display.c
-
-void draw_test_message(uint8_t *buffer) {
-    const char *msg = "UNABLE TO OPEN PTY";
-    int x = 10;
-    int y = 10;
-
-    for (int i = 0; msg[i] != '\0'; i++) {
-        draw_char(x + i * 8, y, msg[i], 1);
-    }
-
-    EPD_7IN5_V2_Display(buffer); // force immediate screen update
-}
-*/
-
 // MAIN!
 int main (void) {
     // Set up the E-Ink Display
@@ -83,23 +67,18 @@ int main (void) {
     
     if (pty_fd < 0) {
         fprintf(stderr, "Failed to open PTY!\n");
-        //draw_test_message(image); // show failure message
         return 1;
     }
-
     
     // Handle PTY output
     char buf[4096];
-    /*
+    
     ssize_t n = read(pty_fd, buf, sizeof(buf));
     if (n > 0) {
-        //vterm_feed_output(buf, n, image);
+        vterm_feed_output(buf, n, image);
         last_input_time = current_millis();
     }
-    */
-
-    vterm_feed_output(buf,1, image);
-    
+  
     int run = 1;
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
