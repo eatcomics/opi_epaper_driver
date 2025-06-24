@@ -51,12 +51,12 @@ int main (void) {
     keyboard_init();
     
     // Set up for PTY
-    char *shell = getenv("$SHELL");
+    char *shell = "/bin/bash";
     if (!shell){
       shell = "/bin/bash";
     }
 
-    char *shell_argv[] = {shell, NULL};
+    char *shell_argv[] = {shell, "-i", NULL}; // -i for interactive
 
     int term_cols = screen_width/8;
     int term_rows = screen_height/16;
