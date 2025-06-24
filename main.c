@@ -80,15 +80,27 @@ int main (void) {
 
     // Init libvterm here
     vterm_init(term_cols, term_rows, pty_fd, image);
+    
+    if (pty_fd < 0) {
+        fprintf(stderr, "Failed to open PTY!\n");
+        //draw_test_message(image); // show failure message
+        return 1;
+    }
+
+
+    // Handle PTY output
+    char buf[4096];
+    ssize_t n = read(pty_fd, buf, sizeof(buf));
+    if (n > 0) {
+        vterm_feed_output(buf, n, image);
+        last_input_time = current_millis();
+    }
 
     int run = 1;
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
     //     reads PTY, and updates the e-ink screen with either a partial, or full refresh
-    const char *msg = "SHELL START FAILED?\n";
-    vterm_feed_output(msg, strlen(msg), image);
-    vterm_redraw(image);
-    while (run) {
+    /*while (run) {
         // Handle keyboard
         uint32_t *key = &keycode;
         int *mods = &modifiers;
@@ -122,40 +134,8 @@ int main (void) {
         usleep(10000); // 10ms idle 
     }
     
-
-
-    
-    /* leaving this here for reference on using the e-ink screen
-    if (DEV_Module_Init() != 0) {
-        printf("Hardware init failed.\n");
-    }
-
-    // Init the e-ink display
-    EPD_7IN5_V2_Init();
-    
-    // Clear the display
-    EPD_7IN5_V2_Clear();
-
-    // Creating an image buffer
-    size_t buffer_size = screenwidth * screenheight / 8;
-    UBYTE *image = (UBYTE *)malloc(buffer_size);
-    if (!image) {
-        printf("Failed to allocate memory\n");
-        DEV_Module_Exit();
-        return -1;
-    }
-
-    // Send image buffer to display and then free the image
-    memset(image, 0xFF, buffer_size);
-    EPD_7IN5_V2_Display(image);
-    free(image);
-
-    // Sleep the Display
-    EPD_7IN5_V2_Sleep();
-
-    DEV_Module_Exit();
     */
-
+    
     // Clean up
     free(image);
     EPD_7IN5_V2_Sleep(); // Sleep the Display
