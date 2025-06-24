@@ -31,7 +31,7 @@ void draw_test_message(uint8_t *buffer) {
     int y = 10;
 
     for (int i = 0; msg[i] != '\0'; i++) {
-        draw_char(x + i * CELL_WIDTH, y, msg[i], COLOR_BLACK);
+        draw_char(x + i * 8, y, msg[i], 1);
     }
 
     EPD_7IN5_V2_Display(buffer); // force immediate screen update
