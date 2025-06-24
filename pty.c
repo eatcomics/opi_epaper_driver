@@ -69,9 +69,10 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
             close(slave_fd);
 
         setenv("TERM", "xterm-256color", 1);
+        dprintf(STDERR_FILENO, "About to exec: %s\n", program);
         execvp(program, argv);
         perror("execvp failed");
-        exit(1);
+        _exit(1);
     }
 
     // PARENT PROCESS
