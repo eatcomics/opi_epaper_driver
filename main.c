@@ -65,9 +65,7 @@ int main (void) {
     int modifiers;
 
     keyboard_init();
-    printf("Just a test\n");
     
-    /*
     // Set up for PTY
     char *shell = getenv("SHELL");
     if (!shell){
@@ -81,7 +79,7 @@ int main (void) {
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
     // Init libvterm here
-    vterm_init(term_cols, term_rows, pty_fd, image);
+    //vterm_init(term_cols, term_rows, pty_fd, image);
     
     if (pty_fd < 0) {
         fprintf(stderr, "Failed to open PTY!\n");
@@ -94,10 +92,10 @@ int main (void) {
     char buf[4096];
     ssize_t n = read(pty_fd, buf, sizeof(buf));
     if (n > 0) {
-        vterm_feed_output(buf, n, image);
+        //vterm_feed_output(buf, n, image);
         last_input_time = current_millis();
     }
-    */
+    
     int run = 1;
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
