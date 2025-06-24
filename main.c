@@ -84,8 +84,10 @@ int main (void) {
             vterm_feed_output(buf, n, image);
             last_input_time = current_millis();
         } else if (n == 0) {
-            fprintf(stderr, "PTY closed (EOF)\n");
+            printf(stderr, "PTY closed (EOF)\n");
         }
+    } else {
+        printf("Error in PTY\n");
     }
   
     int run = 1;
