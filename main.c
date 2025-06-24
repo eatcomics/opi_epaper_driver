@@ -51,7 +51,7 @@ int main (void) {
     keyboard_init();
     
     // Set up for PTY
-    char *shell = getenv("SHELL");
+    char *shell = getenv("$SHELL");
     if (!shell){
       shell = "/bin/bash";
     }
