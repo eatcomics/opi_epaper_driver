@@ -87,14 +87,18 @@ int main (void) {
         return 1;
     }
 
-
+    
     // Handle PTY output
     char buf[4096];
+    /*
     ssize_t n = read(pty_fd, buf, sizeof(buf));
     if (n > 0) {
         //vterm_feed_output(buf, n, image);
         last_input_time = current_millis();
     }
+    */
+
+    vterm_feed_output(buf,1, image);
     
     int run = 1;
     // Da main loop
