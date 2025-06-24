@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include "EPD_7in5_V2.h"
+#include <poll.h>
 
 unsigned long last_input_time = 0;
 #define QUIET_TIMEOUT_MS 1200
@@ -62,6 +62,12 @@ int main (void) {
     int term_rows = screen_height/16;
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
+    struct pollfd fds[] = {
+        { .fd = pty_fd, .events = POLLIN }
+    };
+
+    int ret = poll(fds, 1, 0); // non-blocking poll
+
     // Init libvterm here
     //vterm_init(term_cols, term_rows, pty_fd, image);
     
@@ -71,12 +77,14 @@ int main (void) {
     }
     
     // Handle PTY output
-    char buf[4096];
-    
-    ssize_t n = read(pty_fd, buf, sizeof(buf));
-    if (n > 0) {
-        vterm_feed_output(buf, n, image);
-        last_input_time = current_millis();
+    if (ret > 0 && (fds[0].revents & POLLIN)) {
+        char buf[4096];
+        ssize_t n = read(pty_fd, buf, sizeof(buf));
+        if (n > 0) {
+            vterm_feed_output(buf, n, image);
+            last_input_time = current_millis();
+        } else if (n == 0) {
+            fprintf(stderr, "PTY closed (EOF)\n");
     }
   
     int run = 1;
