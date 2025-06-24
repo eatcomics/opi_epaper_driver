@@ -38,15 +38,15 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
 
     if (pid == 0) {
         // CHILD PROCESS
-        setsid(); // Become session leader
+        setsid(); // create new session
 
         char *slave_name = ptsname(master_fd);
         if (!slave_name) {
-            perror("ptsname returned NULL");
+            perror("child ptsname");
             exit(1);
         }
 
-        dprintf(STDERR_FILENO, "DEBUG: ptsname returned %s\n", slave_name);
+        dprintf(STDERR_FILENO, "DEBUG: ptsname returned: %s\n", slave_name);
 
         int slave_fd = open(slave_name, O_RDWR);
         if (slave_fd < 0) {
@@ -54,7 +54,6 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
             exit(1);
         }
 
-        // Set terminal size
         struct winsize ws = {
             .ws_row = rows,
             .ws_col = cols,
@@ -63,7 +62,6 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
         };
         ioctl(slave_fd, TIOCSWINSZ, &ws);
 
-        // Redirect stdio
         dup2(slave_fd, STDIN_FILENO);
         dup2(slave_fd, STDOUT_FILENO);
         dup2(slave_fd, STDERR_FILENO);
@@ -76,9 +74,10 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
         exit(1);
     }
 
-    // PARENT returns master fd
+    // PARENT PROCESS
     return master_fd;
 }
+
 
 
 
