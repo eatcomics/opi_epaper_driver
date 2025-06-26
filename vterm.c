@@ -1,7 +1,7 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
 #include "font8x16.h"
-#include "keymap.h"
+//#include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
 #include <string.h>
