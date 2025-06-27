@@ -134,6 +134,7 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
+/*
 void draw_char(int x, int y, char c, int color) {
     extern const uint8_t font8x16[96][16]; // this was font8x16[][16] because I didn't know how many chars there would be in the font 
 
@@ -147,6 +148,22 @@ void draw_char(int x, int y, char c, int color) {
         }
     }
 }
+*/
+
+void draw_char(int x, int y, char ch, int color) {
+    if (ch < 0x20 || ch > 0x7F) return;
+    const uint8_t *glyph = font8x16[ch - 0x20];
+
+    for (int row = 0; row < CELL_HEIGHT; row++) {
+        uint8_t bits = glyph[row];
+        for (int col = 0; col < CELL_WIDTH; col++) {
+            if (bits & (1 << (7 - col))) {
+                set_pixel(x + col, y + row, color);
+            }
+        }
+    }
+}
+
 
 // --- Internal Functions ---
 
