@@ -142,14 +142,14 @@ UBYTE EPD_7IN5_V2_Init(void)
     /*
         If the screen appears gray, use the annotated initialization command
     */
-    EPD_SendCommand(0X50);			
+    //EPD_SendCommand(0X50);			
+	//EPD_SendData(0x10);
+	//EPD_SendData(0x07);
+	EPD_SendCommand(0X50);			
 	EPD_SendData(0x10);
-	EPD_SendData(0x07);
-	// EPD_SendCommand(0X50);			
-	// EPD_SendData(0x10);
-	// EPD_SendData(0x17);
-    // EPD_SendCommand(0X52);			
-	// EPD_SendData(0x03);
+	EPD_SendData(0x17);
+    EPD_SendCommand(0X52);			
+	EPD_SendData(0x03);
 
 	EPD_SendCommand(0X60);			//TCON SETTING
 	EPD_SendData(0x22);
