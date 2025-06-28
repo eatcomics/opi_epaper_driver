@@ -97,7 +97,7 @@ int main (void) {
     // Da main loop
     // Create main loop that handles reading keys (buffered) waits for a pause in typing,
     //     reads PTY, and updates the e-ink screen with either a partial, or full refresh
-    /*while (run) {
+    while (run) {
         // Handle keyboard
         uint32_t *key = &keycode;
         int *mods = &modifiers;
@@ -130,8 +130,6 @@ int main (void) {
 
         usleep(10000); // 10ms idle 
     }
-    
-    */
     
     // Clean up
     free(image);
