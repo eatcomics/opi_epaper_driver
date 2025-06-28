@@ -101,9 +101,14 @@ int main (void) {
         // Handle keyboard
         uint32_t *key = &keycode;
         int *mods = &modifiers;
-        if (read_key_event(&key, &mods)) {
-            vterm_process_input(keycode, modifiers);
-            last_input_time = current_millis();
+        // wait for input to happen
+        int input = 0;
+        while (!input) {
+            if (read_key_event(&key, &mods)) {
+                vterm_process_input(keycode, modifiers);
+                last_input_time = current_millis();
+                input = 1;
+            }
         }
 
         if (pty_fd < 0) {
