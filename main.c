@@ -1,5 +1,5 @@
 #include "pty.h"
-#include "vterm.h"
+#include "tsm_term.h"  // Changed from vterm.h
 #include "keyboard.h"
 #include "keymap.h"
 #include "hwconfig.h"
@@ -43,7 +43,7 @@ int main (void) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    printf("Starting E-ink Terminal with libvterm...\n");
+    printf("Starting E-ink Terminal with TSM...\n");
 
     // Set up the E-Ink Display
     printf("Initializing hardware...\n");
@@ -97,10 +97,10 @@ int main (void) {
 
     char *shell_argv[] = {shell, "-i", NULL}; // -i for interactive
 
-    // Use smaller terminal size to avoid libvterm crashes
-    int term_cols = 80;  // Standard 80 columns instead of 100
-    int term_rows = 24;  // Standard 24 rows instead of 30
-    printf("Terminal size: %dx%d characters (reduced for stability)\n", term_cols, term_rows);
+    // Use smaller terminal size to avoid crashes
+    int term_cols = 80;  // Standard 80 columns
+    int term_rows = 24;  // Standard 24 rows
+    printf("Terminal size: %dx%d characters\n", term_cols, term_rows);
     
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
@@ -113,10 +113,10 @@ int main (void) {
     }
     printf("PTY created successfully, fd=%d\n", pty_fd);
 
-    // Init terminal emulator with libvterm
-    printf("Initializing libvterm terminal emulator...\n");
-    if (vterm_init(term_rows, term_cols, pty_fd, image) != 0) {
-        fprintf(stderr, "Failed to initialize libvterm terminal!\n");
+    // Init terminal emulator with TSM
+    printf("Initializing TSM terminal emulator...\n");
+    if (tsm_term_init(term_rows, term_cols, pty_fd, image) != 0) {
+        fprintf(stderr, "Failed to initialize TSM terminal!\n");
         free(image);
         keyboard_close();
         close(pty_fd);
@@ -124,7 +124,7 @@ int main (void) {
         return -1;
     }
 
-    printf("libvterm terminal initialized successfully\n");
+    printf("TSM terminal initialized successfully\n");
 
     // Set PTY to non-blocking
     printf("Setting PTY to non-blocking mode...\n");
@@ -138,7 +138,7 @@ int main (void) {
     }
 
     // Send initial welcome message
-    const char *msg = "Welcome to E-ink Terminal with libvterm!\r\nType commands like 'ls', 'vim', or 'emacs'.\r\n";
+    const char *msg = "Welcome to E-ink Terminal with TSM!\r\nType commands like 'ls', 'vim', or 'emacs'.\r\n";
     ssize_t written = write(pty_fd, msg, strlen(msg));
     if (written < 0) {
         printf("Warning: Failed to write initial message to PTY\n");
@@ -161,16 +161,16 @@ int main (void) {
     if (n > 0) {
         buf[n] = '\0';
         printf("Initial shell output: %zd bytes\n", n);
-        vterm_feed_output(buf, n, image);
+        tsm_term_feed_output(buf, n, image);
         last_input_time = current_millis();
     } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         printf("Error reading initial output: %s\n", strerror(errno));
     }
     
-    // Do an initial redraw - SAFELY
+    // Do an initial redraw
     printf("Performing initial redraw...\n");
     if (image) {
-        vterm_redraw(image);
+        tsm_term_redraw(image);
         last_refresh_time = current_millis();
     }
     
@@ -187,7 +187,7 @@ int main (void) {
         // Process up to 5 keys in one batch to handle fast typing
         while (keys_processed < 5 && read_key_event(&keycode, &modifiers)) {
             printf("Key: %u (mods=%d)\n", keycode, modifiers);
-            vterm_process_input(keycode, modifiers);
+            tsm_term_process_input(keycode, modifiers);
             last_input_time = now;
             activity = 1;
             keys_processed++;
@@ -199,7 +199,7 @@ int main (void) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
             
-            vterm_feed_output(buf, n, image);
+            tsm_term_feed_output(buf, n, image);
             last_input_time = now;
             activity = 1;
         } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -213,7 +213,7 @@ int main (void) {
         // Smart refresh logic - only refresh after user stops typing/activity
         int should_refresh = 0;
         
-        if (vterm_has_pending_damage()) {
+        if (tsm_term_has_pending_damage()) {
             // There's pending damage that needs to be displayed
             if (now - last_input_time > QUIET_TIMEOUT_MS) {
                 // User has stopped typing for a while - safe to refresh
@@ -227,7 +227,7 @@ int main (void) {
         }
         
         if (should_refresh && image) {
-            vterm_redraw(image);
+            tsm_term_redraw(image);
             last_refresh_time = now;
         }
 
@@ -243,7 +243,7 @@ int main (void) {
     
     // Clean up
     printf("Destroying terminal\n");
-    vterm_destroy();
+    tsm_term_destroy();
     free(image);
     EPD_7IN5_V2_Sleep();
     DEV_Module_Exit();
