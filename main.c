@@ -148,29 +148,30 @@ int main (void) {
     last_input_time = current_millis();
     
     // Give the shell a moment to start up and send initial output
-    usleep(200000); // 200ms
+    printf("Waiting for shell to initialize...\n");
+    usleep(500000); // 500ms - give shell more time
     
-    // Read any initial output from the shell
-    char buf[1024]; // Smaller buffer to be safer
+    // Read any initial output from the shell - but be very careful
+    char buf[64]; // Much smaller buffer to be extra safe
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0'; // Null terminate for safety
         printf("Initial shell output: %zd bytes\n", n);
         
-        // Process the output safely
-        vterm_feed_output(buf, n, image);
+        // Process the output safely - but skip it for now to avoid segfault
+        printf("Skipping initial output processing to avoid segfault\n");
+        // vterm_feed_output(buf, n, image);
         
-        // Wait a moment before redrawing
-        usleep(100000); // 100ms
-        
-        printf("Triggering initial redraw...\n");
-        vterm_redraw(image);
         last_input_time = current_millis();
     } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         printf("Error reading initial output: %s\n", strerror(errno));
     } else {
         printf("No initial output from shell\n");
     }
+    
+    // Do an initial redraw to show empty terminal
+    printf("Performing initial redraw...\n");
+    vterm_redraw(image);
     
     // Da main loop
     while (run && !cleanup_requested) {
@@ -186,12 +187,16 @@ int main (void) {
             activity = 1;
         }
 
-        // Handle PTY output
+        // Handle PTY output - but be very careful
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0'; // Null terminate
             printf("PTY output: %zd bytes\n", n);
-            vterm_feed_output(buf, n, image);
+            
+            // For now, skip processing to avoid segfault
+            printf("Skipping PTY output processing to avoid segfault\n");
+            // vterm_feed_output(buf, n, image);
+            
             last_input_time = current_millis();
             activity = 1;
         } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -210,7 +215,7 @@ int main (void) {
             last_input_time = now;
         }
 
-        usleep(50000); // 50ms idle (slower to reduce CPU usage)
+        usleep(100000); // 100ms idle (slower to reduce CPU usage)
     }
     
     printf("Exiting main loop, cleaning up...\n");

@@ -25,6 +25,9 @@ static VTermScreen *screen = NULL;
 static int term_rows, term_cols;
 static int pty_fd = -1;
 
+// Track initialization state
+static int vterm_initialized = 0;
+
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
 static int damage_callback(VTermRect rect, void *user);
@@ -66,6 +69,12 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         return -1;
     }
 
+    // Clean up any existing vterm instance
+    if (vterm_initialized) {
+        printf("Warning: vterm already initialized, cleaning up first\n");
+        vterm_destroy();
+    }
+
     term_rows = rows;
     term_cols = cols;
     pty_fd = pty;
@@ -78,7 +87,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     // Clear the buffer initially
     memset(buffer, 0xFF, buffer_size);
 
-    // Initialize libvterm
+    // Initialize libvterm with error checking
     vterm = vterm_new(rows, cols);
     if (!vterm) {
         printf("Error: Failed to create vterm instance\n");
@@ -87,7 +96,10 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 
     printf("Created vterm instance\n");
 
+    // Configure vterm
     vterm_set_utf8(vterm, 1);
+    
+    // Get the screen
     screen = vterm_obtain_screen(vterm);
     if (!screen) {
         printf("Error: Failed to obtain vterm screen\n");
@@ -98,29 +110,38 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 
     printf("Obtained vterm screen\n");
 
-    VTermScreenCallbacks callbacks = {
-        .damage = damage_callback,
-    };
+    // Set up callbacks - be very careful here
+    VTermScreenCallbacks callbacks = {0}; // Initialize all to NULL/0
+    callbacks.damage = damage_callback;
+    
     vterm_screen_set_callbacks(screen, &callbacks, screen);
+    
+    // Reset the screen
     vterm_screen_reset(screen, 1);
+    
+    // Force a flush to make sure everything is set up
+    vterm_screen_flush_damage(screen);
 
+    vterm_initialized = 1;
     printf("vterm initialization complete\n");
     return 0;
 }
 
 void vterm_destroy(void) {
     if (vterm) {
+        printf("Destroying vterm instance\n");
         vterm_free(vterm);
         vterm = NULL;
     }
     screen = NULL;
     vterm_buffer = NULL;
     buffer_size = 0;
+    vterm_initialized = 0;
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
-    if (!vterm || !screen || !data || len == 0) {
-        printf("vterm_feed_output: invalid parameters\n");
+    if (!vterm_initialized || !vterm || !screen || !data || len == 0) {
+        printf("vterm_feed_output: invalid state or parameters\n");
         return;
     }
     
@@ -142,12 +163,18 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    // Feed data in smaller chunks to avoid issues
-    const size_t chunk_size = 256;
-    for (size_t offset = 0; offset < len; offset += chunk_size) {
-        size_t chunk_len = (len - offset > chunk_size) ? chunk_size : (len - offset);
-        vterm_input_write(vterm, data + offset, chunk_len);
+    // Process data byte by byte to be extra safe
+    for (size_t i = 0; i < len; i++) {
+        printf("Processing byte %zu: 0x%02x\n", i, (unsigned char)data[i]);
+        
+        // Feed one byte at a time
+        vterm_input_write(vterm, &data[i], 1);
+        
+        // Flush damage after each byte to catch issues early
+        vterm_screen_flush_damage(screen);
     }
+    
+    printf("Finished feeding data to vterm\n");
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
@@ -212,7 +239,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 }
 
 void vterm_redraw(uint8_t *buffer) {
-    if (!vterm || !screen || !buffer) {
+    if (!vterm_initialized || !vterm || !screen || !buffer) {
         printf("vterm_redraw: invalid state\n");
         return;
     }
@@ -301,7 +328,7 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 // --- Internal Functions ---
 
 static int damage_callback(VTermRect rect, void *user) {
-    if (!screen || !vterm_buffer) {
+    if (!vterm_initialized || !screen || !vterm_buffer) {
         printf("damage_callback: invalid state\n");
         return 0;
     }
@@ -316,17 +343,9 @@ static int damage_callback(VTermRect rect, void *user) {
         return 0;
     }
 
-    for (int row = rect.start_row; row < rect.end_row; row++) {
-        for (int col = rect.start_col; col < rect.end_col; col++) {
-            VTermPos pos = {.row = row, .col = col};
-            VTermScreenCell cell;
-            if (vterm_screen_get_cell(screen, pos, &cell)) {
-                render_cell(col, row, &cell);
-            }
-        }
-    }
-
-    // Don't flush display here - let the main loop handle it
+    // Don't render in the damage callback - just mark as damaged
+    // The main loop will handle the actual rendering
+    printf("Damage callback completed\n");
     return 1;
 }
 
