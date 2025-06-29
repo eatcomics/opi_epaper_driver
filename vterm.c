@@ -244,44 +244,9 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    // Add safety checks before calling vterm_input_write
-    printf("LOG: Pre-flight checks...\n");
-    printf("LOG: - vterm pointer: %p\n", vterm);
-    printf("LOG: - data pointer: %p\n", data);
-    printf("LOG: - data length: %zu\n", len);
-    printf("LOG: - first few bytes: ");
-    for (size_t i = 0; i < (len < 10 ? len : 10); i++) {
-        printf("%02x ", (unsigned char)data[i]);
-    }
-    printf("\n");
-    
-    // Try to feed data to libvterm with extra safety
-    printf("LOG: About to call vterm_input_write...\n");
-    fflush(stdout);  // Force output before potential crash
-    
-    // CRITICAL: Add a test to see if vterm is valid - FIXED API CALL
-    printf("LOG: Testing vterm validity...\n");
-    int test_rows, test_cols;
-    vterm_get_size(vterm, &test_rows, &test_cols);
-    printf("LOG: vterm size check passed: %dx%d\n", test_cols, test_rows);
-    
-    // SAFETY: Temporarily disable callbacks to see if they're causing the crash
-    printf("LOG: Temporarily disabling callbacks for safety...\n");
-    VTermScreenCallbacks empty_callbacks;
-    memset(&empty_callbacks, 0, sizeof(empty_callbacks));
-    vterm_screen_set_callbacks(screen, &empty_callbacks, NULL);
-    
-    printf("LOG: Calling vterm_input_write with %zu bytes (callbacks disabled)\n", len);
+    printf("LOG: Calling vterm_input_write with %zu bytes\n", len);
     vterm_input_write(vterm, data, len);
     printf("LOG: vterm_input_write returned successfully\n");
-    
-    // Re-enable callbacks
-    printf("LOG: Re-enabling callbacks...\n");
-    VTermScreenCallbacks callbacks;
-    memset(&callbacks, 0, sizeof(callbacks));
-    callbacks.damage = damage_callback;
-    vterm_screen_set_callbacks(screen, &callbacks, screen);
-    printf("LOG: Callbacks re-enabled\n");
     
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
@@ -477,7 +442,37 @@ static int damage_callback(VTermRect rect, void *user) {
         return 1;
     }
     
+    if (!vterm_buffer || !vterm_initialized) {
+        printf("LOG: damage_callback - not ready (buffer=%p, initialized=%d)\n", vterm_buffer, vterm_initialized);
+        return 1;
+    }
+    
     printf("LOG: damage_callback - bounds check passed\n");
+    
+    // SAFETY: Only render the damaged area instead of full screen
+    VTermScreenCell cell;
+    int rendered_chars = 0;
+    
+    printf("LOG: Rendering damaged area: rows %d-%d, cols %d-%d\n", 
+           rect.start_row, rect.end_row, rect.start_col, rect.end_col);
+    
+    for (int row = rect.start_row; row < rect.end_row && row < term_rows; row++) {
+        for (int col = rect.start_col; col < rect.end_col && col < term_cols; col++) {
+            VTermPos pos = {.row = row, .col = col};
+            
+            // Initialize cell to safe defaults
+            memset(&cell, 0, sizeof(cell));
+            
+            if (vterm_screen_get_cell(screen, pos, &cell)) {
+                render_cell(col, row, &cell);
+                if (cell.chars[0] != 0) {
+                    rendered_chars++;
+                }
+            }
+        }
+    }
+    
+    printf("LOG: damage_callback rendered %d chars\n", rendered_chars);
     damage_pending = 1;
     printf("LOG: damage_callback returning\n");
     return 1;
