@@ -64,12 +64,41 @@ static void put_char_at(int row, int col, char ch);
 static void render_screen_buffer(void);
 static void save_line_to_scrollback(int row);
 
-// Key mapping table for Linux input event codes to ASCII
+// Complete key mapping table for Linux input event codes to ASCII
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
-    // Handle letters
-    if (keycode >= KEY_A && keycode <= KEY_Z) {
-        char base = 'a' + (keycode - KEY_A);
-        return shift_pressed ? (base - 'a' + 'A') : base;
+    // Handle letters (KEY_Q=16, KEY_W=17, KEY_E=18, etc.)
+    switch (keycode) {
+        // QWERTY row 1
+        case KEY_Q: return shift_pressed ? 'Q' : 'q';           // 16
+        case KEY_W: return shift_pressed ? 'W' : 'w';           // 17
+        case KEY_E: return shift_pressed ? 'E' : 'e';           // 18
+        case KEY_R: return shift_pressed ? 'R' : 'r';           // 19
+        case KEY_T: return shift_pressed ? 'T' : 't';           // 20
+        case KEY_Y: return shift_pressed ? 'Y' : 'y';           // 21
+        case KEY_U: return shift_pressed ? 'U' : 'u';           // 22
+        case KEY_I: return shift_pressed ? 'I' : 'i';           // 23
+        case KEY_O: return shift_pressed ? 'O' : 'o';           // 24
+        case KEY_P: return shift_pressed ? 'P' : 'p';           // 25
+        
+        // QWERTY row 2
+        case KEY_A: return shift_pressed ? 'A' : 'a';           // 30
+        case KEY_S: return shift_pressed ? 'S' : 's';           // 31
+        case KEY_D: return shift_pressed ? 'D' : 'd';           // 32
+        case KEY_F: return shift_pressed ? 'F' : 'f';           // 33
+        case KEY_G: return shift_pressed ? 'G' : 'g';           // 34
+        case KEY_H: return shift_pressed ? 'H' : 'h';           // 35
+        case KEY_J: return shift_pressed ? 'J' : 'j';           // 36
+        case KEY_K: return shift_pressed ? 'K' : 'k';           // 37
+        case KEY_L: return shift_pressed ? 'L' : 'l';           // 38
+        
+        // QWERTY row 3
+        case KEY_Z: return shift_pressed ? 'Z' : 'z';           // 44
+        case KEY_X: return shift_pressed ? 'X' : 'x';           // 45
+        case KEY_C: return shift_pressed ? 'C' : 'c';           // 46
+        case KEY_V: return shift_pressed ? 'V' : 'v';           // 47
+        case KEY_B: return shift_pressed ? 'B' : 'b';           // 48
+        case KEY_N: return shift_pressed ? 'N' : 'n';           // 49
+        case KEY_M: return shift_pressed ? 'M' : 'm';           // 50
     }
     
     // Handle numbers
@@ -89,18 +118,18 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
     
     // Handle special characters
     switch (keycode) {
-        case KEY_SPACE: return ' ';
-        case KEY_MINUS: return shift_pressed ? '_' : '-';
-        case KEY_EQUAL: return shift_pressed ? '+' : '=';
-        case KEY_LEFTBRACE: return shift_pressed ? '{' : '[';
-        case KEY_RIGHTBRACE: return shift_pressed ? '}' : ']';
-        case KEY_BACKSLASH: return shift_pressed ? '|' : '\\';
-        case KEY_SEMICOLON: return shift_pressed ? ':' : ';';
-        case KEY_APOSTROPHE: return shift_pressed ? '"' : '\'';
-        case KEY_GRAVE: return shift_pressed ? '~' : '`';
-        case KEY_COMMA: return shift_pressed ? '<' : ',';
-        case KEY_DOT: return shift_pressed ? '>' : '.';
-        case KEY_SLASH: return shift_pressed ? '?' : '/';
+        case KEY_SPACE: return ' ';                             // 57
+        case KEY_MINUS: return shift_pressed ? '_' : '-';       // 12
+        case KEY_EQUAL: return shift_pressed ? '+' : '=';       // 13
+        case KEY_LEFTBRACE: return shift_pressed ? '{' : '[';   // 26
+        case KEY_RIGHTBRACE: return shift_pressed ? '}' : ']';  // 27
+        case KEY_BACKSLASH: return shift_pressed ? '|' : '\\';  // 43
+        case KEY_SEMICOLON: return shift_pressed ? ':' : ';';   // 39
+        case KEY_APOSTROPHE: return shift_pressed ? '"' : '\''; // 40
+        case KEY_GRAVE: return shift_pressed ? '~' : '`';       // 41
+        case KEY_COMMA: return shift_pressed ? '<' : ',';       // 51
+        case KEY_DOT: return shift_pressed ? '>' : '.';         // 52
+        case KEY_SLASH: return shift_pressed ? '?' : '/';       // 53
         default: return 0;
     }
 }
@@ -330,9 +359,42 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     
     if (ctrl_pressed) {
         // Handle Ctrl+letter combinations
-        if (keycode >= KEY_A && keycode <= KEY_Z) {
-            char ctrl_char = keycode - KEY_A + 1;  // Ctrl+A = 1, Ctrl+B = 2, etc.
-            printf("Sending Ctrl+%c (0x%02x)\n", 'A' + keycode - KEY_A, ctrl_char);
+        if ((keycode >= KEY_A && keycode <= KEY_Z) || 
+            (keycode >= KEY_Q && keycode <= KEY_P)) {
+            char ctrl_char;
+            
+            // Map keycode to letter
+            switch (keycode) {
+                case KEY_Q: ctrl_char = 17; break;  // Ctrl+Q
+                case KEY_W: ctrl_char = 23; break;  // Ctrl+W
+                case KEY_E: ctrl_char = 5; break;   // Ctrl+E
+                case KEY_R: ctrl_char = 18; break;  // Ctrl+R
+                case KEY_T: ctrl_char = 20; break;  // Ctrl+T
+                case KEY_Y: ctrl_char = 25; break;  // Ctrl+Y
+                case KEY_U: ctrl_char = 21; break;  // Ctrl+U
+                case KEY_I: ctrl_char = 9; break;   // Ctrl+I
+                case KEY_O: ctrl_char = 15; break;  // Ctrl+O
+                case KEY_P: ctrl_char = 16; break;  // Ctrl+P
+                case KEY_A: ctrl_char = 1; break;   // Ctrl+A
+                case KEY_S: ctrl_char = 19; break;  // Ctrl+S
+                case KEY_D: ctrl_char = 4; break;   // Ctrl+D
+                case KEY_F: ctrl_char = 6; break;   // Ctrl+F
+                case KEY_G: ctrl_char = 7; break;   // Ctrl+G
+                case KEY_H: ctrl_char = 8; break;   // Ctrl+H
+                case KEY_J: ctrl_char = 10; break;  // Ctrl+J
+                case KEY_K: ctrl_char = 11; break;  // Ctrl+K
+                case KEY_L: ctrl_char = 12; break;  // Ctrl+L
+                case KEY_Z: ctrl_char = 26; break;  // Ctrl+Z
+                case KEY_X: ctrl_char = 24; break;  // Ctrl+X
+                case KEY_C: ctrl_char = 3; break;   // Ctrl+C
+                case KEY_V: ctrl_char = 22; break;  // Ctrl+V
+                case KEY_B: ctrl_char = 2; break;   // Ctrl+B
+                case KEY_N: ctrl_char = 14; break;  // Ctrl+N
+                case KEY_M: ctrl_char = 13; break;  // Ctrl+M
+                default: return;
+            }
+            
+            printf("Sending Ctrl+%c (0x%02x)\n", 'A' + ctrl_char - 1, ctrl_char);
             write(pty_fd, &ctrl_char, 1);
             return;
         }
