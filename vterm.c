@@ -279,6 +279,7 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
+/*
 // Fallback character rendering using built-in font
 void draw_char_fallback(int x, int y, char ch, int color) {
     extern const uint8_t font8x16[96][16];
@@ -298,6 +299,7 @@ void draw_char_fallback(int x, int y, char ch, int color) {
         }
     }
 }
+*/
 
 void draw_unicode_char(int x, int y, uint32_t codepoint, int color) {
     // Clear background first
