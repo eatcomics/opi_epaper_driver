@@ -17,6 +17,7 @@
 
 // Internal buffer
 static uint8_t *vterm_buffer = NULL;
+static size_t buffer_size = 0;
 
 // Vterm variables
 static VTerm *vterm = NULL;
@@ -60,15 +61,21 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         return -1;
     }
 
+    if (rows <= 0 || cols <= 0) {
+        printf("Error: invalid terminal dimensions %dx%d\n", cols, rows);
+        return -1;
+    }
+
     term_rows = rows;
     term_cols = cols;
     pty_fd = pty;
     vterm_buffer = buffer;
+    buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
 
     printf("Initializing vterm: %dx%d\n", cols, rows);
+    printf("Buffer size: %zu bytes\n", buffer_size);
 
     // Clear the buffer initially
-    size_t buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
     memset(buffer, 0xFF, buffer_size);
 
     // Initialize libvterm
@@ -107,15 +114,40 @@ void vterm_destroy(void) {
         vterm = NULL;
     }
     screen = NULL;
+    vterm_buffer = NULL;
+    buffer_size = 0;
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
-    if (!vterm || !data || len == 0) {
+    if (!vterm || !screen || !data || len == 0) {
+        printf("vterm_feed_output: invalid parameters\n");
         return;
     }
     
+    if (!buffer) {
+        printf("vterm_feed_output: NULL buffer\n");
+        return;
+    }
+    
+    printf("Feeding %zu bytes to vterm: ", len);
+    for (size_t i = 0; i < len && i < 20; i++) {
+        if (isprint(data[i])) {
+            printf("%c", data[i]);
+        } else {
+            printf("\\x%02x", (unsigned char)data[i]);
+        }
+    }
+    if (len > 20) printf("...");
+    printf("\n");
+    
     vterm_buffer = buffer;
-    vterm_input_write(vterm, data, len);
+    
+    // Feed data in smaller chunks to avoid issues
+    const size_t chunk_size = 256;
+    for (size_t offset = 0; offset < len; offset += chunk_size) {
+        size_t chunk_len = (len - offset > chunk_size) ? chunk_size : (len - offset);
+        vterm_input_write(vterm, data + offset, chunk_len);
+    }
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
@@ -181,24 +213,39 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 
 void vterm_redraw(uint8_t *buffer) {
     if (!vterm || !screen || !buffer) {
+        printf("vterm_redraw: invalid state\n");
         return;
     }
     
+    printf("Redrawing terminal %dx%d\n", term_cols, term_rows);
+    
     vterm_buffer = buffer;
+    
+    // Clear the buffer first
+    memset(buffer, 0xFF, buffer_size);
+    
     VTermScreenCell cell;
+    int cells_rendered = 0;
+    
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
             VTermPos pos = {.row = row, .col = col};
             if (vterm_screen_get_cell(screen, pos, &cell)) {
                 render_cell(col, row, &cell);
+                if (cell.chars[0] != 0) {
+                    cells_rendered++;
+                }
             }
         }
     }
+    
+    printf("Rendered %d non-empty cells\n", cells_rendered);
     flush_display();
 }
 
 void flush_display(void) {
     if (vterm_buffer) {
+        printf("Flushing display to E-ink\n");
         EPD_7IN5_V2_Display(vterm_buffer);
     }
 }
@@ -212,7 +259,6 @@ void set_pixel(int x, int y, int color) {
     int bit_index = 7 - (x % 8);
     
     // Bounds check for buffer access
-    size_t buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
     if (byte_index < 0 || byte_index >= buffer_size) {
         return;
     }
@@ -256,6 +302,17 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 
 static int damage_callback(VTermRect rect, void *user) {
     if (!screen || !vterm_buffer) {
+        printf("damage_callback: invalid state\n");
+        return 0;
+    }
+
+    printf("Damage callback: rows %d-%d, cols %d-%d\n", 
+           rect.start_row, rect.end_row, rect.start_col, rect.end_col);
+
+    // Validate rectangle bounds
+    if (rect.start_row < 0 || rect.end_row > term_rows ||
+        rect.start_col < 0 || rect.end_col > term_cols) {
+        printf("damage_callback: invalid rectangle bounds\n");
         return 0;
     }
 
@@ -278,10 +335,15 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
         return;
     }
 
+    // Validate cell position
+    if (col < 0 || col >= term_cols || row < 0 || row >= term_rows) {
+        return;
+    }
+
     int x = col * CELL_WIDTH;
     int y = row * CELL_HEIGHT;
 
-    // Bounds check
+    // Bounds check for screen coordinates
     if (x < 0 || x >= EPD_7IN5_V2_WIDTH || y < 0 || y >= EPD_7IN5_V2_HEIGHT) {
         return;
     }

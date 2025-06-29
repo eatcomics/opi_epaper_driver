@@ -123,15 +123,6 @@ int main (void) {
 
     printf("Terminal initialized successfully\n");
 
-    // Send initial test message
-    const char *msg = "Welcome to E-ink Terminal!\r\n";
-    ssize_t written = write(pty_fd, msg, strlen(msg));
-    if (written < 0) {
-        printf("Warning: Failed to write initial message to PTY\n");
-    } else {
-        printf("Sent welcome message (%zd bytes)\n", written);
-    }
-    
     // Set PTY to non-blocking
     printf("Setting PTY to non-blocking mode...\n");
     int flags = fcntl(pty_fd, F_GETFL, 0);
@@ -142,22 +133,43 @@ int main (void) {
             perror("fcntl F_SETFL");
         }
     }
+
+    // Send initial test message
+    const char *msg = "Welcome to E-ink Terminal!\r\n";
+    ssize_t written = write(pty_fd, msg, strlen(msg));
+    if (written < 0) {
+        printf("Warning: Failed to write initial message to PTY\n");
+    } else {
+        printf("Sent welcome message (%zd bytes)\n", written);
+    }
     
     printf("Entering main loop...\n");
     int run = 1;
     last_input_time = current_millis();
     
     // Give the shell a moment to start up and send initial output
-    usleep(100000); // 100ms
+    usleep(200000); // 200ms
     
     // Read any initial output from the shell
-    char buf[4096];
-    ssize_t n = read(pty_fd, buf, sizeof(buf));
+    char buf[1024]; // Smaller buffer to be safer
+    ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
+        buf[n] = '\0'; // Null terminate for safety
         printf("Initial shell output: %zd bytes\n", n);
+        
+        // Process the output safely
         vterm_feed_output(buf, n, image);
+        
+        // Wait a moment before redrawing
+        usleep(100000); // 100ms
+        
+        printf("Triggering initial redraw...\n");
         vterm_redraw(image);
         last_input_time = current_millis();
+    } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        printf("Error reading initial output: %s\n", strerror(errno));
+    } else {
+        printf("No initial output from shell\n");
     }
     
     // Da main loop
@@ -168,14 +180,17 @@ int main (void) {
         uint32_t keycode;
         int modifiers;
         if (read_key_event(&keycode, &modifiers)) {
+            printf("Key event: code=%u, mods=%d\n", keycode, modifiers);
             vterm_process_input(keycode, modifiers);
             last_input_time = current_millis();
             activity = 1;
         }
 
         // Handle PTY output
-        n = read(pty_fd, buf, sizeof(buf));
+        n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
+            buf[n] = '\0'; // Null terminate
+            printf("PTY output: %zd bytes\n", n);
             vterm_feed_output(buf, n, image);
             last_input_time = current_millis();
             activity = 1;
@@ -190,22 +205,22 @@ int main (void) {
         // Refresh screen after a quiet period
         unsigned long now = current_millis();
         if (activity && (now - last_input_time > QUIET_TIMEOUT_MS)) {
-            printf("Refreshing display...\n");
+            printf("Refreshing display after quiet period...\n");
             vterm_redraw(image);
             last_input_time = now;
         }
 
-        usleep(10000); // 10ms idle 
+        usleep(50000); // 50ms idle (slower to reduce CPU usage)
     }
     
     printf("Exiting main loop, cleaning up...\n");
     
     // Clean up
+    vterm_destroy();
     free(image);
     EPD_7IN5_V2_Sleep(); // Sleep the Display
     DEV_Module_Exit();
     keyboard_close();
-    vterm_destroy();
     close(pty_fd);
     
     printf("Cleanup complete\n");
