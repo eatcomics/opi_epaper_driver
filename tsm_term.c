@@ -9,17 +9,16 @@
 #include <ctype.h>
 #include <linux/input-event-codes.h>
 
-// Check if libtsm is available
-#ifdef HAVE_LIBTSM
-#include <libtsm.h>
-#else
-// Fallback: simple terminal implementation
-#endif
-
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
 #define COLOR_WHITE 0
 #define COLOR_BLACK 1
+
+// Output buffering
+#define OUTPUT_BUFFER_SIZE 4096
+static char output_buffer[OUTPUT_BUFFER_SIZE];
+static size_t output_buffer_pos = 0;
+static int output_buffer_dirty = 0;
 
 // Terminal state
 static int term_rows = 24;
@@ -59,6 +58,8 @@ static void move_cursor(int row, int col);
 static void process_csi_sequence(const char *seq, int len);
 static void render_screen(void);
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed);
+static void flush_output_buffer(void);
+static void process_buffered_output(void);
 
 int tsm_term_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("tsm_term_init: %dx%d\n", cols, rows);
@@ -80,6 +81,10 @@ int tsm_term_init(int rows, int cols, int pty, uint8_t *buffer) {
     parser_state = STATE_NORMAL;
     escape_pos = 0;
     
+    // Initialize output buffer
+    output_buffer_pos = 0;
+    output_buffer_dirty = 0;
+    
     // Clear screen buffer
     for (int r = 0; r < term_rows; r++) {
         for (int c = 0; c < term_cols; c++) {
@@ -100,9 +105,14 @@ int tsm_term_init(int rows, int cols, int pty, uint8_t *buffer) {
 }
 
 void tsm_term_destroy(void) {
+    // Flush any remaining output
+    flush_output_buffer();
+    
     framebuffer = NULL;
     buffer_size = 0;
     pty_fd = -1;
+    output_buffer_pos = 0;
+    output_buffer_dirty = 0;
 }
 
 void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
@@ -114,8 +124,32 @@ void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     printf("tsm_term_feed_output: %zu bytes\n", len);
     
+    // Add to output buffer instead of processing immediately
     for (size_t i = 0; i < len; i++) {
-        char ch = data[i];
+        if (output_buffer_pos < OUTPUT_BUFFER_SIZE - 1) {
+            output_buffer[output_buffer_pos++] = data[i];
+            output_buffer_dirty = 1;
+        } else {
+            // Buffer full, process what we have
+            process_buffered_output();
+            output_buffer[0] = data[i];
+            output_buffer_pos = 1;
+            output_buffer_dirty = 1;
+        }
+    }
+    
+    printf("Output buffered: %zu chars total\n", output_buffer_pos);
+}
+
+static void process_buffered_output(void) {
+    if (!output_buffer_dirty || output_buffer_pos == 0) {
+        return;
+    }
+    
+    printf("Processing %zu buffered characters\n", output_buffer_pos);
+    
+    for (size_t i = 0; i < output_buffer_pos; i++) {
+        char ch = output_buffer[i];
         
         switch (parser_state) {
             case STATE_NORMAL:
@@ -219,7 +253,17 @@ void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
         }
     }
     
+    // Clear the buffer
+    output_buffer_pos = 0;
+    output_buffer_dirty = 0;
+    
     printf("Cursor position: %d,%d\n", cursor_row, cursor_col);
+}
+
+static void flush_output_buffer(void) {
+    if (output_buffer_dirty) {
+        process_buffered_output();
+    }
 }
 
 void tsm_term_process_input(uint32_t keycode, int modifiers) {
@@ -232,32 +276,39 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
     // Check for modifier keys
     int ctrl_pressed = (modifiers & 0x04) != 0;
     int shift_pressed = (modifiers & 0x01) != 0;
-    // int alt_pressed = (modifiers & 0x08) != 0;  // Commented out to remove warning
 
     // Handle special keys first
     switch (keycode) {
         case KEY_ENTER:
+            printf("Sending ENTER to PTY\n");
             write(pty_fd, "\r", 1);
             return;
         case KEY_BACKSPACE:
+            printf("Sending BACKSPACE to PTY\n");
             write(pty_fd, "\b", 1);
             return;
         case KEY_TAB:
+            printf("Sending TAB to PTY\n");
             write(pty_fd, "\t", 1);
             return;
         case KEY_ESC:
+            printf("Sending ESC to PTY\n");
             write(pty_fd, "\x1b", 1);
             return;
         case KEY_UP:
+            printf("Sending UP arrow to PTY\n");
             write(pty_fd, "\x1b[A", 3);
             return;
         case KEY_DOWN:
+            printf("Sending DOWN arrow to PTY\n");
             write(pty_fd, "\x1b[B", 3);
             return;
         case KEY_RIGHT:
+            printf("Sending RIGHT arrow to PTY\n");
             write(pty_fd, "\x1b[C", 3);
             return;
         case KEY_LEFT:
+            printf("Sending LEFT arrow to PTY\n");
             write(pty_fd, "\x1b[D", 3);
             return;
         case KEY_HOME:
@@ -283,15 +334,15 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
         if (ctrl_pressed && ascii_char >= 'a' && ascii_char <= 'z') {
             // Convert to control character
             char ctrl_char = ascii_char - 'a' + 1;
-            printf("Sending Ctrl+%c (0x%02x)\n", ascii_char, ctrl_char);
+            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, ctrl_char);
             write(pty_fd, &ctrl_char, 1);
         } else if (ctrl_pressed && ascii_char >= 'A' && ascii_char <= 'Z') {
             // Convert to control character
             char ctrl_char = ascii_char - 'A' + 1;
-            printf("Sending Ctrl+%c (0x%02x)\n", ascii_char, ctrl_char);
+            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, ctrl_char);
             write(pty_fd, &ctrl_char, 1);
         } else {
-            printf("Sending ASCII: '%c' (0x%02x)\n", ascii_char, ascii_char);
+            printf("Sending ASCII '%c' (0x%02x) to PTY\n", ascii_char, ascii_char);
             write(pty_fd, &ascii_char, 1);
         }
     } else {
@@ -300,22 +351,32 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
 }
 
 void tsm_term_redraw(uint8_t *buffer) {
-    if (!buffer || !damage_pending) {
+    if (!buffer) {
         return;
     }
     
     framebuffer = buffer;
+    
+    // Process any buffered output first
+    flush_output_buffer();
+    
+    if (!damage_pending) {
+        return;
+    }
+    
+    printf("Redrawing terminal screen\n");
     render_screen();
     tsm_flush_display();
     damage_pending = 0;
 }
 
 int tsm_term_has_pending_damage(void) {
-    return damage_pending;
+    return damage_pending || output_buffer_dirty;
 }
 
 void tsm_flush_display(void) {
     if (framebuffer) {
+        printf("Flushing display to E-ink\n");
         EPD_7IN5_V2_Display(framebuffer);
     }
 }
