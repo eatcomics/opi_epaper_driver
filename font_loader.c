@@ -98,6 +98,10 @@ int search_font_recursive(const char *dir_path, const char *font_name, char *res
 }
 
 int find_system_font(const char *font_name, char *path_buffer, size_t buffer_size) {
+    if (!font_name || !path_buffer || buffer_size == 0) {
+        return 0;
+    }
+
     for (int i = 0; font_search_paths[i] != NULL; i++) {
         const char *search_path = font_search_paths[i];
         
@@ -119,6 +123,10 @@ int find_system_font(const char *font_name, char *path_buffer, size_t buffer_siz
 }
 
 int load_font_face(const char *font_path, FT_Face *face) {
+    if (!font_path || !face || !font_manager.library) {
+        return -1;
+    }
+
     FT_Error error = FT_New_Face(font_manager.library, font_path, 0, face);
     if (error) {
         printf("Failed to load font: %s (error: %d)\n", font_path, error);
@@ -130,6 +138,7 @@ int load_font_face(const char *font_path, FT_Face *face) {
     if (error) {
         printf("Failed to set font size (error: %d)\n", error);
         FT_Done_Face(*face);
+        *face = NULL;
         return -1;
     }
 
@@ -137,6 +146,9 @@ int load_font_face(const char *font_path, FT_Face *face) {
 }
 
 int font_loader_init(void) {
+    // Clear the font manager structure
+    memset(&font_manager, 0, sizeof(font_manager));
+
     // Initialize FreeType library
     FT_Error error = FT_Init_FreeType(&font_manager.library);
     if (error) {
@@ -183,8 +195,8 @@ int font_loader_init(void) {
     // Initialize cache
     font_manager.cache.count = 0;
 
-    // Return success if we found at least one font
-    return (found_latin || found_cjk) ? 0 : -1;
+    // Return success if we found at least one font or if we can use fallback
+    return 0; // Always return success - we can fall back to built-in font
 }
 
 void font_loader_cleanup(void) {
@@ -250,6 +262,10 @@ FontCacheEntry* add_to_cache(uint32_t codepoint) {
 }
 
 int render_char_to_bitmap(uint32_t codepoint, uint8_t *bitmap, int max_width, int max_height) {
+    if (!bitmap || !font_manager.library) {
+        return -1;
+    }
+
     // Choose appropriate font face
     FT_Face face = NULL;
     if (is_cjk_char(codepoint) && font_manager.face_cjk) {
@@ -321,6 +337,10 @@ int render_char_to_bitmap(uint32_t codepoint, uint8_t *bitmap, int max_width, in
 }
 
 const uint8_t* get_char_bitmap(uint32_t codepoint, int *width, int *height, int *advance) {
+    if (!font_manager.library) {
+        return NULL;
+    }
+
     // Check cache first
     FontCacheEntry *cached = find_in_cache(codepoint);
     if (cached) {
