@@ -97,9 +97,10 @@ int main (void) {
 
     char *shell_argv[] = {shell, "-i", NULL}; // -i for interactive
 
-    int term_cols = screen_width/8;
-    int term_rows = screen_height/16;
-    printf("Terminal size: %dx%d characters\n", term_cols, term_rows);
+    // Use smaller terminal size to avoid libvterm crashes
+    int term_cols = 80;  // Standard 80 columns instead of 100
+    int term_rows = 24;  // Standard 24 rows instead of 30
+    printf("Terminal size: %dx%d characters (reduced for stability)\n", term_cols, term_rows);
     
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 

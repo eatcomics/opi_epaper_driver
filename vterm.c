@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <linux/input-event-codes.h>
+#include <signal.h>
+#include <setjmp.h>
 
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
@@ -28,10 +30,15 @@ static int pty_fd = -1;
 static int damage_pending = 0;
 static int vterm_initialized = 0;
 
+// Safety mechanism for crash detection
+static jmp_buf crash_recovery;
+static volatile int in_vterm_call = 0;
+
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
 static int damage_callback(VTermRect rect, void *user);
 static void output_callback(const char *s, size_t len, void *user);
+static void crash_handler(int sig);
 
 // Complete key mapping table for Linux input event codes to ASCII
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
@@ -127,6 +134,15 @@ int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
     }
 }
 
+static void crash_handler(int sig) {
+    printf("CRASH: Signal %d caught during libvterm operation!\n", sig);
+    if (in_vterm_call) {
+        printf("CRASH: Jumping back to safety...\n");
+        longjmp(crash_recovery, sig);
+    }
+    exit(1);
+}
+
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("LOG: vterm_init START - rows=%d, cols=%d, pty=%d, buffer=%p\n", rows, cols, pty, buffer);
     
@@ -140,74 +156,80 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         return -1;
     }
 
+    // Set up crash handler
+    signal(SIGSEGV, crash_handler);
+    signal(SIGBUS, crash_handler);
+    signal(SIGFPE, crash_handler);
+
     // Clean up any existing state
     if (vterm) {
         printf("LOG: Cleaning up existing vterm\n");
         vterm_destroy();
     }
 
-    term_rows = rows;
-    term_cols = cols;
+    // IMPORTANT: Use much smaller terminal size to avoid crashes
+    // The original 100x30 might be too large for libvterm
+    int safe_rows = (rows > 24) ? 24 : rows;    // Max 24 rows
+    int safe_cols = (cols > 80) ? 80 : cols;    // Max 80 cols
+    
+    printf("LOG: Adjusting terminal size from %dx%d to %dx%d for safety\n", 
+           cols, rows, safe_cols, safe_rows);
+
+    term_rows = safe_rows;
+    term_cols = safe_cols;
     pty_fd = pty;
     vterm_buffer = buffer;
     buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
     vterm_initialized = 0;
 
-    printf("Terminal dimensions: %dx%d\n", cols, rows);
+    printf("Terminal dimensions: %dx%d\n", safe_cols, safe_rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
-    // MINIMAL TEST: Try creating libvterm with very small size first
-    printf("LOG: Creating MINIMAL libvterm instance (10x5)\n");
-    VTerm *test_vterm = vterm_new(5, 10);
-    if (!test_vterm) {
-        printf("Error: Failed to create minimal libvterm instance\n");
+    // Try creating libvterm with the safe size
+    printf("LOG: Creating libvterm instance (%dx%d)\n", safe_rows, safe_cols);
+    
+    // Use setjmp/longjmp for crash recovery
+    int crash_signal = setjmp(crash_recovery);
+    if (crash_signal != 0) {
+        printf("CRASH RECOVERY: libvterm crashed with signal %d\n", crash_signal);
+        if (vterm) {
+            vterm_free(vterm);
+            vterm = NULL;
+        }
         return -1;
     }
-    printf("LOG: Minimal libvterm instance created successfully\n");
     
-    // Test basic operations on minimal instance
-    printf("LOG: Testing minimal vterm operations\n");
-    vterm_set_utf8(test_vterm, 1);
-    printf("LOG: UTF-8 set on minimal vterm\n");
+    in_vterm_call = 1;
+    vterm = vterm_new(safe_rows, safe_cols);
+    in_vterm_call = 0;
     
-    // Try a simple input write on minimal instance
-    printf("LOG: Testing minimal input write\n");
-    const char test_data = 'A';
-    
-    printf("LOG: About to call vterm_input_write on minimal vterm\n");
-    fflush(stdout);
-    
-    // THIS IS THE CRITICAL TEST - if this crashes, the problem is with libvterm itself
-    vterm_input_write(test_vterm, &test_data, 1);
-    
-    printf("LOG: Minimal vterm_input_write succeeded!\n");
-    
-    // Clean up test instance
-    vterm_free(test_vterm);
-    printf("LOG: Minimal test completed successfully\n");
-
-    // Now try with our actual size
-    printf("LOG: Creating full-size libvterm instance (%dx%d)\n", rows, cols);
-    vterm = vterm_new(rows, cols);
     if (!vterm) {
-        printf("Error: Failed to create full-size libvterm instance\n");
+        printf("Error: Failed to create libvterm instance\n");
         return -1;
     }
-    printf("LOG: Full-size libvterm instance created successfully\n");
+    printf("LOG: libvterm instance created successfully\n");
 
-    // Configure libvterm
+    // Configure libvterm with crash protection
     printf("LOG: Configuring libvterm\n");
+    
+    in_vterm_call = 1;
     vterm_set_utf8(vterm, 1);
+    in_vterm_call = 0;
     printf("LOG: UTF-8 mode set\n");
     
-    // CRITICAL: Set up output callback BEFORE getting screen
+    // Set up output callback
     printf("LOG: Setting up output callback\n");
+    in_vterm_call = 1;
     vterm_output_set_callback(vterm, output_callback, NULL);
+    in_vterm_call = 0;
     printf("LOG: Output callback set\n");
     
     // Get screen interface
     printf("LOG: Getting screen interface\n");
+    in_vterm_call = 1;
     screen = vterm_obtain_screen(vterm);
+    in_vterm_call = 0;
+    
     if (!screen) {
         printf("Error: Failed to obtain libvterm screen\n");
         vterm_free(vterm);
@@ -222,12 +244,16 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     memset(&callbacks, 0, sizeof(callbacks));
     // callbacks.damage = damage_callback;  // STILL DISABLED
     
+    in_vterm_call = 1;
     vterm_screen_set_callbacks(screen, &callbacks, screen);
+    in_vterm_call = 0;
     printf("LOG: Screen callbacks set (damage callback disabled)\n");
 
     // Reset and initialize
     printf("LOG: Resetting screen\n");
+    in_vterm_call = 1;
     vterm_screen_reset(screen, 1);
+    in_vterm_call = 0;
     printf("LOG: Screen reset complete\n");
 
     // Clear the framebuffer
@@ -248,7 +274,9 @@ void vterm_destroy(void) {
     
     if (vterm) {
         printf("Destroying libvterm terminal\n");
+        in_vterm_call = 1;
         vterm_free(vterm);
+        in_vterm_call = 0;
         vterm = NULL;
         screen = NULL;
     }
@@ -281,39 +309,26 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     }
     printf("\n");
     
-    // SAFETY: Validate vterm pointer before use
-    printf("LOG: Validating vterm pointer: %p\n", vterm);
-    if (!vterm) {
-        printf("ERROR: vterm is NULL!\n");
+    // Use crash recovery for vterm_input_write
+    int crash_signal = setjmp(crash_recovery);
+    if (crash_signal != 0) {
+        printf("CRASH RECOVERY: vterm_input_write crashed with signal %d\n", crash_signal);
         return;
     }
     
-    // SAFETY: Try to validate vterm structure by checking size
-    int check_rows, check_cols;
-    vterm_get_size(vterm, &check_rows, &check_cols);
-    printf("LOG: vterm size validation: %dx%d (expected %dx%d)\n", check_cols, check_rows, term_cols, term_rows);
+    printf("LOG: About to call vterm_input_write with crash protection...\n");
+    fflush(stdout);
     
-    if (check_rows != term_rows || check_cols != term_cols) {
-        printf("ERROR: vterm size mismatch!\n");
-        return;
-    }
-    
-    printf("LOG: About to call vterm_input_write...\n");
-    fflush(stdout);  // Force output before potential crash
-    
-    // NEW APPROACH: Try with smaller chunks and more error checking
-    printf("LOG: Processing data in small chunks\n");
-    
-    const size_t chunk_size = 1;  // Process one byte at a time
+    // Process in very small chunks with crash protection
+    const size_t chunk_size = 1;
     for (size_t offset = 0; offset < len; offset += chunk_size) {
         size_t remaining = len - offset;
         size_t current_chunk = (remaining < chunk_size) ? remaining : chunk_size;
         
-        printf("LOG: Processing chunk %zu-%zu (%zu bytes)\n", offset, offset + current_chunk - 1, current_chunk);
+        printf("LOG: Processing byte %zu: 0x%02x ('%c')\n", 
+               offset, (unsigned char)data[offset], 
+               isprint(data[offset]) ? data[offset] : '?');
         fflush(stdout);
-        
-        // Add memory barrier and validation before each call
-        __sync_synchronize();  // Memory barrier
         
         // Validate vterm is still valid
         if (!vterm) {
@@ -321,13 +336,15 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
             return;
         }
         
-        // Try the actual call
+        // Try the actual call with crash protection
+        in_vterm_call = 1;
         vterm_input_write(vterm, data + offset, current_chunk);
+        in_vterm_call = 0;
         
-        printf("LOG: Chunk %zu processed successfully\n", offset / chunk_size);
+        printf("LOG: Byte %zu processed successfully\n", offset);
     }
     
-    printf("LOG: All chunks processed successfully\n");
+    printf("LOG: All bytes processed successfully\n");
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
 }
@@ -358,7 +375,17 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     VTermKey vterm_key = convert_keycode_to_vtermkey(keycode);
     if (vterm_key != VTERM_KEY_NONE) {
         printf("Sending special key via libvterm: %d\n", vterm_key);
+        
+        // Use crash protection for keyboard input
+        int crash_signal = setjmp(crash_recovery);
+        if (crash_signal != 0) {
+            printf("CRASH RECOVERY: vterm_keyboard_key crashed with signal %d\n", crash_signal);
+            return;
+        }
+        
+        in_vterm_call = 1;
         vterm_keyboard_key(vterm, vterm_key, vterm_mods);
+        in_vterm_call = 0;
         printf("LOG: Special key processed successfully\n");
         return;
     }
@@ -414,11 +441,20 @@ void vterm_redraw(uint8_t *buffer) {
             // Initialize cell to safe defaults
             memset(&cell, 0, sizeof(cell));
             
-            if (vterm_screen_get_cell(screen, pos, &cell)) {
-                if (cell.chars[0] != 0) {
-                    render_cell(col, row, &cell);
-                    rendered_chars++;
-                }
+            // Use crash protection for screen access
+            int crash_signal = setjmp(crash_recovery);
+            if (crash_signal != 0) {
+                printf("CRASH RECOVERY: vterm_screen_get_cell crashed at %d,%d\n", row, col);
+                continue;
+            }
+            
+            in_vterm_call = 1;
+            int cell_valid = vterm_screen_get_cell(screen, pos, &cell);
+            in_vterm_call = 0;
+            
+            if (cell_valid && cell.chars[0] != 0) {
+                render_cell(col, row, &cell);
+                rendered_chars++;
             }
         }
     }
