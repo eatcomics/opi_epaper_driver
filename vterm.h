@@ -20,5 +20,6 @@ int vterm_has_pending_damage(void);
 void flush_display(void);
 void set_pixel(int x, int y, int color);
 void draw_rect(int x, int y, int w, int h, int color);
+void draw_char_fallback(int x, int y, char ch, int color);
 
 #endif // VTERM_H

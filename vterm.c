@@ -2,7 +2,6 @@
 #include "EPD_7in5_V2.h"
 #include "font8x16.h"
 #include "keymap.h"
-#include <vterm.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
@@ -19,86 +18,38 @@
 static uint8_t *vterm_buffer = NULL;
 static size_t buffer_size = 0;
 
-// Vterm variables
-static VTerm *vterm = NULL;
-static VTermScreen *screen = NULL;
+// Terminal state
 static int term_rows, term_cols;
 static int pty_fd = -1;
 
-// Track initialization state
-static int vterm_initialized = 0;
+// Simple terminal emulator state
+static char **screen_buffer = NULL;  // 2D array of characters
+static int cursor_row = 0;
+static int cursor_col = 0;
 static int damage_pending = 0;
-static int vterm_disabled = 0; // Emergency fallback mode
+
+// ANSI escape sequence parser state
+typedef enum {
+    PARSE_NORMAL,
+    PARSE_ESCAPE,
+    PARSE_CSI,
+    PARSE_CSI_PARAM
+} parse_state_t;
+
+static parse_state_t parse_state = PARSE_NORMAL;
+static char escape_buffer[64];
+static int escape_pos = 0;
 
 // Forward declarations
-static void render_cell(int col, int row, const VTermScreenCell *cell);
-static int damage_callback(VTermRect rect, void *user);
-
-// Utility function that's optional in libvterm. Putting it here so you don't
-// have to recompile it with the option
-int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
-    if (codepoint < 0x80) {
-        buffer[0] = codepoint;
-        return 1;
-    } else if (codepoint < 0x800) {
-        buffer[0] = 0xC0 | (codepoint >> 6);
-        buffer[1] = 0x80 | (codepoint & 0x3F);
-        return 2;
-    } else if (codepoint < 0x10000) {
-        buffer[0] = 0xE0 | (codepoint >> 12);
-        buffer[1] = 0x80 | ((codepoint >> 6) & 0x3F);
-        buffer[2] = 0x80 | (codepoint & 0x3F);
-        return 3;
-    } else if (codepoint < 0x110000) {
-        buffer[0] = 0xF0 | (codepoint >> 18);
-        buffer[1] = 0x80 | ((codepoint >> 12) & 0x3F);
-        buffer[2] = 0x80 | ((codepoint >> 6) & 0x3F);
-        buffer[3] = 0x80 | (codepoint & 0x3F);
-        return 4;
-    } else {
-        return 0;
-    }
-}
-
-// Test function to verify vterm works at all
-static int test_vterm_basic(void) {
-    printf("Testing basic vterm functionality...\n");
-    
-    VTerm *test_vterm = vterm_new(10, 10);
-    if (!test_vterm) {
-        printf("ERROR: Failed to create test vterm instance\n");
-        return -1;
-    }
-    
-    printf("Created test vterm instance successfully\n");
-    
-    // Try to get screen
-    VTermScreen *test_screen = vterm_obtain_screen(test_vterm);
-    if (!test_screen) {
-        printf("ERROR: Failed to obtain test screen\n");
-        vterm_free(test_vterm);
-        return -1;
-    }
-    
-    printf("Obtained test screen successfully\n");
-    
-    // Try a simple input
-    printf("Testing vterm_input_write with single character...\n");
-    const char test_char = 'A';
-    
-    // This is where it might crash
-    vterm_input_write(test_vterm, &test_char, 1);
-    
-    printf("vterm_input_write succeeded!\n");
-    
-    // Clean up
-    vterm_free(test_vterm);
-    printf("Basic vterm test completed successfully\n");
-    return 0;
-}
+static void clear_screen_buffer(void);
+static void scroll_up(void);
+static void process_escape_sequence(void);
+static void move_cursor(int row, int col);
+static void put_char_at(int row, int col, char ch);
+static void render_screen_buffer(void);
 
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
-    printf("vterm_init: Starting initialization...\n");
+    printf("vterm_init: Starting fallback terminal emulator...\n");
     
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
@@ -110,23 +61,8 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         return -1;
     }
 
-    // Test basic vterm functionality first
-    if (test_vterm_basic() != 0) {
-        printf("ERROR: Basic vterm test failed - disabling vterm functionality\n");
-        vterm_disabled = 1;
-        // Continue with fallback mode
-        term_rows = rows;
-        term_cols = cols;
-        pty_fd = pty;
-        vterm_buffer = buffer;
-        buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
-        memset(buffer, 0xFF, buffer_size);
-        return 0; // Return success but in disabled mode
-    }
-
-    // Clean up any existing vterm instance
-    if (vterm_initialized) {
-        printf("Warning: vterm already initialized, cleaning up first\n");
+    // Clean up any existing state
+    if (screen_buffer) {
         vterm_destroy();
     }
 
@@ -136,194 +72,153 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     vterm_buffer = buffer;
     buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
 
-    printf("Initializing vterm: %dx%d\n", cols, rows);
+    printf("Initializing fallback terminal: %dx%d\n", cols, rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
-    // Clear the buffer initially
+    // Allocate screen buffer
+    screen_buffer = malloc(term_rows * sizeof(char*));
+    if (!screen_buffer) {
+        printf("Error: Failed to allocate screen buffer rows\n");
+        return -1;
+    }
+
+    for (int i = 0; i < term_rows; i++) {
+        screen_buffer[i] = malloc(term_cols + 1); // +1 for null terminator
+        if (!screen_buffer[i]) {
+            printf("Error: Failed to allocate screen buffer row %d\n", i);
+            // Clean up already allocated rows
+            for (int j = 0; j < i; j++) {
+                free(screen_buffer[j]);
+            }
+            free(screen_buffer);
+            screen_buffer = NULL;
+            return -1;
+        }
+        memset(screen_buffer[i], ' ', term_cols);
+        screen_buffer[i][term_cols] = '\0';
+    }
+
+    // Clear the framebuffer
     memset(buffer, 0xFF, buffer_size);
 
-    // Initialize libvterm with error checking
-    printf("Creating vterm instance...\n");
-    vterm = vterm_new(rows, cols);
-    if (!vterm) {
-        printf("Error: Failed to create vterm instance - falling back to disabled mode\n");
-        vterm_disabled = 1;
-        return 0;
-    }
-
-    printf("Created vterm instance\n");
-
-    // Configure vterm
-    printf("Configuring vterm...\n");
-    vterm_set_utf8(vterm, 1);
-    
-    // Get the screen
-    printf("Getting vterm screen...\n");
-    screen = vterm_obtain_screen(vterm);
-    if (!screen) {
-        printf("Error: Failed to obtain vterm screen - falling back to disabled mode\n");
-        vterm_free(vterm);
-        vterm = NULL;
-        vterm_disabled = 1;
-        return 0;
-    }
-
-    printf("Obtained vterm screen\n");
-
-    // Set up callbacks - be very careful here
-    printf("Setting up callbacks...\n");
-    VTermScreenCallbacks callbacks = {0}; // Initialize all to NULL/0
-    callbacks.damage = damage_callback;
-    
-    vterm_screen_set_callbacks(screen, &callbacks, screen);
-    
-    printf("Callbacks set, resetting screen...\n");
-    // Reset the screen
-    vterm_screen_reset(screen, 1);
-    
-    printf("Screen reset, flushing damage...\n");
-    // Force a flush to make sure everything is set up
-    vterm_screen_flush_damage(screen);
-
-    vterm_initialized = 1;
+    // Initialize terminal state
+    cursor_row = 0;
+    cursor_col = 0;
+    parse_state = PARSE_NORMAL;
+    escape_pos = 0;
     damage_pending = 0;
-    vterm_disabled = 0;
-    printf("vterm initialization complete\n");
+
+    printf("Fallback terminal initialized successfully\n");
     return 0;
 }
 
 void vterm_destroy(void) {
-    if (vterm) {
-        printf("Destroying vterm instance\n");
-        vterm_free(vterm);
-        vterm = NULL;
+    if (screen_buffer) {
+        printf("Destroying fallback terminal\n");
+        for (int i = 0; i < term_rows; i++) {
+            if (screen_buffer[i]) {
+                free(screen_buffer[i]);
+            }
+        }
+        free(screen_buffer);
+        screen_buffer = NULL;
     }
-    screen = NULL;
     vterm_buffer = NULL;
     buffer_size = 0;
-    vterm_initialized = 0;
     damage_pending = 0;
 }
 
-// Fallback text rendering for when vterm is disabled
-static void fallback_render_text(const char *text, size_t len) {
-    static int cursor_x = 0;
-    static int cursor_y = 0;
-    
-    printf("Fallback rendering %zu characters at (%d,%d)\n", len, cursor_x, cursor_y);
-    
-    for (size_t i = 0; i < len; i++) {
-        char ch = text[i];
-        
-        if (ch == '\r') {
-            cursor_x = 0;
-            continue;
-        } else if (ch == '\n') {
-            cursor_y++;
-            cursor_x = 0;
-            if (cursor_y >= term_rows) {
-                cursor_y = term_rows - 1;
-                // Should scroll here, but for now just wrap
-            }
-            continue;
-        } else if (ch == '\b') {
-            if (cursor_x > 0) cursor_x--;
-            continue;
-        }
-        
-        if (cursor_x >= term_cols) {
-            cursor_x = 0;
-            cursor_y++;
-            if (cursor_y >= term_rows) {
-                cursor_y = term_rows - 1;
-            }
-        }
-        
-        // Render character directly to framebuffer
-        if (isprint(ch)) {
-            int x = cursor_x * CELL_WIDTH;
-            int y = cursor_y * CELL_HEIGHT;
-            draw_char_fallback(x, y, ch, COLOR_BLACK);
-        }
-        
-        cursor_x++;
-    }
-}
-
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
-    printf("vterm_feed_output: Called with len=%zu\n", len);
-    
-    if (!data || len == 0) {
-        printf("vterm_feed_output: invalid data or length\n");
-        return;
-    }
-    
-    if (!buffer) {
-        printf("vterm_feed_output: NULL buffer\n");
+    if (!data || len == 0 || !buffer || !screen_buffer) {
         return;
     }
     
     vterm_buffer = buffer;
     
-    // If vterm is disabled, use fallback rendering
-    if (vterm_disabled || !vterm_initialized || !vterm || !screen) {
-        printf("Using fallback text rendering (vterm disabled)\n");
-        fallback_render_text(data, len);
-        flush_display();
-        return;
-    }
+    printf("Processing %zu bytes of terminal output\n", len);
     
-    // Limit the amount of data we process at once
-    if (len > 64) {
-        printf("vterm_feed_output: truncating large input from %zu to 64 bytes\n", len);
-        len = 64;
-    }
-    
-    printf("Feeding %zu bytes to vterm: ", len);
-    for (size_t i = 0; i < len && i < 20; i++) {
-        if (isprint(data[i])) {
-            printf("%c", data[i]);
-        } else {
-            printf("\\x%02x", (unsigned char)data[i]);
-        }
-    }
-    if (len > 20) printf("...");
-    printf("\n");
-    
-    // Try to process data one byte at a time to isolate the crash
     for (size_t i = 0; i < len; i++) {
-        printf("Processing byte %zu: 0x%02x ('%c')\n", i, (unsigned char)data[i], 
-               isprint(data[i]) ? data[i] : '?');
+        char ch = data[i];
         
-        // Check vterm state before each call
-        if (!vterm || !screen) {
-            printf("ERROR: vterm or screen became NULL during processing!\n");
-            vterm_disabled = 1;
-            return;
+        switch (parse_state) {
+            case PARSE_NORMAL:
+                if (ch == '\x1b') {  // ESC
+                    parse_state = PARSE_ESCAPE;
+                    escape_pos = 0;
+                } else if (ch == '\r') {
+                    cursor_col = 0;
+                } else if (ch == '\n') {
+                    cursor_row++;
+                    if (cursor_row >= term_rows) {
+                        scroll_up();
+                        cursor_row = term_rows - 1;
+                    }
+                } else if (ch == '\b') {
+                    if (cursor_col > 0) {
+                        cursor_col--;
+                    }
+                } else if (ch == '\t') {
+                    // Simple tab handling - move to next 8-column boundary
+                    cursor_col = ((cursor_col + 8) / 8) * 8;
+                    if (cursor_col >= term_cols) {
+                        cursor_col = 0;
+                        cursor_row++;
+                        if (cursor_row >= term_rows) {
+                            scroll_up();
+                            cursor_row = term_rows - 1;
+                        }
+                    }
+                } else if (isprint(ch) || ch == ' ') {
+                    // Handle line wrapping
+                    if (cursor_col >= term_cols) {
+                        cursor_col = 0;
+                        cursor_row++;
+                        if (cursor_row >= term_rows) {
+                            scroll_up();
+                            cursor_row = term_rows - 1;
+                        }
+                    }
+                    
+                    put_char_at(cursor_row, cursor_col, ch);
+                    cursor_col++;
+                }
+                break;
+                
+            case PARSE_ESCAPE:
+                if (ch == '[') {
+                    parse_state = PARSE_CSI;
+                    escape_pos = 0;
+                } else {
+                    // Other escape sequences - ignore for now
+                    parse_state = PARSE_NORMAL;
+                }
+                break;
+                
+            case PARSE_CSI:
+                if (escape_pos < sizeof(escape_buffer) - 1) {
+                    escape_buffer[escape_pos++] = ch;
+                }
+                
+                if (isalpha(ch)) {
+                    // End of CSI sequence
+                    escape_buffer[escape_pos] = '\0';
+                    process_escape_sequence();
+                    parse_state = PARSE_NORMAL;
+                    escape_pos = 0;
+                } else if (escape_pos >= sizeof(escape_buffer) - 1) {
+                    // Buffer overflow - abort sequence
+                    parse_state = PARSE_NORMAL;
+                    escape_pos = 0;
+                }
+                break;
+                
+            default:
+                parse_state = PARSE_NORMAL;
+                break;
         }
-        
-        printf("About to call vterm_input_write for byte %zu...\n", i);
-        
-        // Try the actual vterm call - this is where it's probably crashing
-        // Wrap in additional safety checks
-        if (vterm_initialized && !vterm_disabled) {
-            vterm_input_write(vterm, &data[i], 1);
-            printf("Successfully processed byte %zu\n", i);
-            
-            // Flush damage after each byte
-            printf("Flushing damage after byte %zu...\n", i);
-            vterm_screen_flush_damage(screen);
-        } else {
-            printf("Skipping vterm_input_write - vterm not properly initialized\n");
-            vterm_disabled = 1;
-            return;
-        }
-        
-        // Small delay
-        usleep(10000); // 10ms
     }
     
-    printf("Finished feeding data to vterm\n");
+    damage_pending = 1;
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
@@ -336,13 +231,23 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     if (keycode >= 32 && keycode < 127) {
         // Printable ASCII character
         char ch = (char)keycode;
+        
+        // Handle Ctrl combinations
+        if (modifiers & 0x04) { // Ctrl modifier
+            if (keycode >= 'a' && keycode <= 'z') {
+                ch = keycode - 'a' + 1; // Ctrl+A = 0x01, etc.
+            } else if (keycode >= 'A' && keycode <= 'Z') {
+                ch = keycode - 'A' + 1;
+            }
+        }
+        
         ssize_t written = write(pty_fd, &ch, 1);
-        printf("Wrote character '%c' to PTY: %zd bytes\n", ch, written);
+        printf("Wrote character '%c' (0x%02x) to PTY: %zd bytes\n", 
+               isprint(ch) ? ch : '?', (unsigned char)ch, written);
     } else {
         // Special keys
         VTermKey key = convert_keycode_to_vtermkey(keycode);
         if (key != VTERM_KEY_NONE) {
-            // Convert VTerm key to escape sequence and send to PTY
             char seq[16];
             int len = 0;
             
@@ -352,7 +257,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     len = 1;
                     break;
                 case VTERM_KEY_BACKSPACE:
-                    seq[0] = '\b';
+                    seq[0] = '\x7f'; // DEL character
                     len = 1;
                     break;
                 case VTERM_KEY_TAB:
@@ -379,6 +284,14 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     strcpy(seq, "\x1b[D");
                     len = 3;
                     break;
+                case VTERM_KEY_HOME:
+                    strcpy(seq, "\x1b[H");
+                    len = 3;
+                    break;
+                case VTERM_KEY_END:
+                    strcpy(seq, "\x1b[F");
+                    len = 3;
+                    break;
                 default:
                     printf("Unhandled special key: %d\n", key);
                     break;
@@ -395,46 +308,12 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 }
 
 void vterm_redraw(uint8_t *buffer) {
-    if (!buffer) {
-        printf("vterm_redraw: NULL buffer\n");
+    if (!buffer || !screen_buffer) {
         return;
     }
     
     vterm_buffer = buffer;
-    
-    if (vterm_disabled || !vterm_initialized || !vterm || !screen) {
-        printf("vterm_redraw: using fallback mode\n");
-        // In fallback mode, just clear the screen and show a simple message
-        memset(buffer, 0xFF, buffer_size);
-        const char *msg = "Terminal (fallback mode)";
-        for (int i = 0; i < strlen(msg) && i < term_cols; i++) {
-            draw_char_fallback(i * CELL_WIDTH, 0, msg[i], COLOR_BLACK);
-        }
-        flush_display();
-        return;
-    }
-    
-    printf("Redrawing terminal %dx%d\n", term_cols, term_rows);
-    
-    // Clear the buffer first
-    memset(buffer, 0xFF, buffer_size);
-    
-    VTermScreenCell cell;
-    int cells_rendered = 0;
-    
-    for (int row = 0; row < term_rows; row++) {
-        for (int col = 0; col < term_cols; col++) {
-            VTermPos pos = {.row = row, .col = col};
-            if (vterm_screen_get_cell(screen, pos, &cell)) {
-                render_cell(col, row, &cell);
-                if (cell.chars[0] != 0) {
-                    cells_rendered++;
-                }
-            }
-        }
-    }
-    
-    printf("Rendered %d non-empty cells\n", cells_rendered);
+    render_screen_buffer();
     flush_display();
     damage_pending = 0;
 }
@@ -458,15 +337,14 @@ void set_pixel(int x, int y, int color) {
     int byte_index = (y * EPD_7IN5_V2_WIDTH + x) / 8;
     int bit_index = 7 - (x % 8);
     
-    // Bounds check for buffer access
     if (byte_index < 0 || byte_index >= buffer_size) {
         return;
     }
     
     if (color == COLOR_BLACK) {
-        vterm_buffer[byte_index] &= ~(1 << bit_index); // Set bit to 0 for black
+        vterm_buffer[byte_index] &= ~(1 << bit_index);
     } else {
-        vterm_buffer[byte_index] |= (1 << bit_index);  // Set bit to 1 for white
+        vterm_buffer[byte_index] |= (1 << bit_index);
     }
 }
 
@@ -478,12 +356,11 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
-// Fallback character rendering using built-in font
 void draw_char_fallback(int x, int y, char ch, int color) {
     extern const uint8_t font8x16[96][16];
     
     if (ch < 0x20 || ch > 0x7F) {
-        ch = '?'; // Replace non-printable with question mark
+        ch = '?';
     }
     
     const uint8_t *glyph = font8x16[ch - 0x20];
@@ -500,62 +377,134 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 
 // --- Internal Functions ---
 
-static int damage_callback(VTermRect rect, void *user) {
-    printf("damage_callback: Called with rect (%d,%d) to (%d,%d)\n", 
-           rect.start_row, rect.start_col, rect.end_row, rect.end_col);
+static void clear_screen_buffer(void) {
+    if (!screen_buffer) return;
     
-    if (vterm_disabled || !vterm_initialized || !screen || !vterm_buffer) {
-        printf("damage_callback: invalid state\n");
-        return 0;
+    for (int i = 0; i < term_rows; i++) {
+        memset(screen_buffer[i], ' ', term_cols);
+        screen_buffer[i][term_cols] = '\0';
     }
-
-    // Validate rectangle bounds
-    if (rect.start_row < 0 || rect.end_row > term_rows ||
-        rect.start_col < 0 || rect.end_col > term_cols) {
-        printf("damage_callback: invalid rectangle bounds\n");
-        return 0;
-    }
-
-    // Mark that we have pending damage
-    damage_pending = 1;
-    
-    // Don't render immediately in the damage callback - just mark as damaged
-    // The main loop will handle the actual rendering
-    printf("Damage callback completed, marked pending\n");
-    return 1;
+    cursor_row = 0;
+    cursor_col = 0;
 }
 
-static void render_cell(int col, int row, const VTermScreenCell *cell) {
-    if (!cell || !vterm_buffer) {
+static void scroll_up(void) {
+    if (!screen_buffer) return;
+    
+    // Move all lines up by one
+    char *first_line = screen_buffer[0];
+    for (int i = 0; i < term_rows - 1; i++) {
+        screen_buffer[i] = screen_buffer[i + 1];
+    }
+    
+    // Clear the last line
+    screen_buffer[term_rows - 1] = first_line;
+    memset(screen_buffer[term_rows - 1], ' ', term_cols);
+    screen_buffer[term_rows - 1][term_cols] = '\0';
+}
+
+static void process_escape_sequence(void) {
+    if (escape_pos == 0) return;
+    
+    char cmd = escape_buffer[escape_pos - 1];
+    
+    printf("Processing ANSI sequence: [%s\n", escape_buffer);
+    
+    switch (cmd) {
+        case 'H': // Cursor position
+        case 'f': {
+            int row = 1, col = 1;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d;%d", &row, &col);
+            }
+            move_cursor(row - 1, col - 1); // Convert to 0-based
+            break;
+        }
+        case 'A': // Cursor up
+            if (cursor_row > 0) cursor_row--;
+            break;
+        case 'B': // Cursor down
+            if (cursor_row < term_rows - 1) cursor_row++;
+            break;
+        case 'C': // Cursor right
+            if (cursor_col < term_cols - 1) cursor_col++;
+            break;
+        case 'D': // Cursor left
+            if (cursor_col > 0) cursor_col--;
+            break;
+        case 'J': // Clear screen
+            if (escape_buffer[0] == '2') {
+                clear_screen_buffer();
+            }
+            break;
+        case 'K': // Clear line
+            if (screen_buffer && cursor_row >= 0 && cursor_row < term_rows) {
+                memset(&screen_buffer[cursor_row][cursor_col], ' ', 
+                       term_cols - cursor_col);
+            }
+            break;
+        case 'm': // Set graphics mode (colors, etc.) - ignore for now
+            break;
+        default:
+            printf("Unhandled ANSI sequence: %c\n", cmd);
+            break;
+    }
+}
+
+static void move_cursor(int row, int col) {
+    cursor_row = (row < 0) ? 0 : (row >= term_rows) ? term_rows - 1 : row;
+    cursor_col = (col < 0) ? 0 : (col >= term_cols) ? term_cols - 1 : col;
+}
+
+static void put_char_at(int row, int col, char ch) {
+    if (!screen_buffer || row < 0 || row >= term_rows || col < 0 || col >= term_cols) {
         return;
     }
+    
+    screen_buffer[row][col] = ch;
+}
 
-    // Validate cell position
-    if (col < 0 || col >= term_cols || row < 0 || row >= term_rows) {
+static void render_screen_buffer(void) {
+    if (!screen_buffer || !vterm_buffer) {
         return;
     }
-
-    int x = col * CELL_WIDTH;
-    int y = row * CELL_HEIGHT;
-
-    // Bounds check for screen coordinates
-    if (x < 0 || x >= EPD_7IN5_V2_WIDTH || y < 0 || y >= EPD_7IN5_V2_HEIGHT) {
-        return;
+    
+    // Clear the framebuffer
+    memset(vterm_buffer, 0xFF, buffer_size);
+    
+    // Render each character
+    for (int row = 0; row < term_rows; row++) {
+        for (int col = 0; col < term_cols; col++) {
+            char ch = screen_buffer[row][col];
+            if (ch != ' ') {
+                int x = col * CELL_WIDTH;
+                int y = row * CELL_HEIGHT;
+                draw_char_fallback(x, y, ch, COLOR_BLACK);
+            }
+        }
     }
-
-    // Clear the cell background first
-    draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
-
-    // If there's no character, just leave it blank
-    if (cell->chars[0] == 0) {
-        return;
-    }
-
-    // For now, just render ASCII characters using the fallback font
-    if (cell->chars[0] < 128) {
-        draw_char_fallback(x, y, (char)cell->chars[0], COLOR_BLACK);
-    } else {
-        // For non-ASCII, draw a placeholder box
-        draw_rect(x + 1, y + 1, CELL_WIDTH - 2, CELL_HEIGHT - 2, COLOR_BLACK);
+    
+    // Draw cursor (simple block cursor)
+    if (cursor_row >= 0 && cursor_row < term_rows && 
+        cursor_col >= 0 && cursor_col < term_cols) {
+        int x = cursor_col * CELL_WIDTH;
+        int y = cursor_row * CELL_HEIGHT;
+        
+        // Draw cursor as inverted block
+        for (int dy = 0; dy < CELL_HEIGHT; dy++) {
+            for (int dx = 0; dx < CELL_WIDTH; dx++) {
+                // Get current pixel
+                int px = x + dx;
+                int py = y + dy;
+                if (px >= 0 && px < EPD_7IN5_V2_WIDTH && py >= 0 && py < EPD_7IN5_V2_HEIGHT) {
+                    int byte_index = (py * EPD_7IN5_V2_WIDTH + px) / 8;
+                    int bit_index = 7 - (px % 8);
+                    if (byte_index >= 0 && byte_index < buffer_size) {
+                        // Invert the pixel
+                        vterm_buffer[byte_index] ^= (1 << bit_index);
+                    }
+                }
+            }
+        }
     }
 }
