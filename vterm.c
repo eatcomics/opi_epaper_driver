@@ -321,19 +321,6 @@ void draw_unicode_char(int x, int y, uint32_t codepoint, int color) {
             return;
         }
     }
-
-    // Fallback rendering
-    if (codepoint < 128) {
-        // ASCII character - use built-in font
-        draw_char_fallback(x, y, (char)codepoint, color);
-    } else {
-        // Non-ASCII - draw a simple box
-        draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
-        draw_rect(x, y, CELL_WIDTH, 1, COLOR_BLACK);
-        draw_rect(x, y + CELL_HEIGHT - 1, CELL_WIDTH, 1, COLOR_BLACK);
-        draw_rect(x, y, 1, CELL_HEIGHT, COLOR_BLACK);
-        draw_rect(x + CELL_WIDTH - 1, y, 1, CELL_HEIGHT, COLOR_BLACK);
-    }
 }
 
 // --- Internal Functions ---
