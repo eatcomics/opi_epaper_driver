@@ -415,7 +415,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     write(pty_fd, &esc_char, 1);
                     return;
                 }
-            case KEY_BACKSLASH: // Ctrl+\
+            case KEY_BACKSLASH: // Ctrl+\ (backslash)
                 {
                     char fs_char = 28;
                     printf("Sending Ctrl+\\ (FS)\n");

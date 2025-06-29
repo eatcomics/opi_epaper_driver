@@ -8,13 +8,6 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
 
 int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int cols) {
     int master_fd = posix_openpt(O_RDWR | O_NOCTTY);
@@ -78,7 +71,3 @@ int setup_pty_and_spawn(const char *program, char *const argv[], int rows, int c
     // PARENT PROCESS
     return master_fd;
 }
-
-
-
-
