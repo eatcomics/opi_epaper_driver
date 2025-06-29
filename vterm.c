@@ -156,14 +156,44 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Terminal dimensions: %dx%d\n", cols, rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
-    // Create libvterm instance
-    printf("LOG: Creating libvterm instance\n");
-    vterm = vterm_new(rows, cols);
-    if (!vterm) {
-        printf("Error: Failed to create libvterm instance\n");
+    // MINIMAL TEST: Try creating libvterm with very small size first
+    printf("LOG: Creating MINIMAL libvterm instance (10x5)\n");
+    VTerm *test_vterm = vterm_new(5, 10);
+    if (!test_vterm) {
+        printf("Error: Failed to create minimal libvterm instance\n");
         return -1;
     }
-    printf("LOG: libvterm instance created successfully\n");
+    printf("LOG: Minimal libvterm instance created successfully\n");
+    
+    // Test basic operations on minimal instance
+    printf("LOG: Testing minimal vterm operations\n");
+    vterm_set_utf8(test_vterm, 1);
+    printf("LOG: UTF-8 set on minimal vterm\n");
+    
+    // Try a simple input write on minimal instance
+    printf("LOG: Testing minimal input write\n");
+    const char test_data = 'A';
+    
+    printf("LOG: About to call vterm_input_write on minimal vterm\n");
+    fflush(stdout);
+    
+    // THIS IS THE CRITICAL TEST - if this crashes, the problem is with libvterm itself
+    vterm_input_write(test_vterm, &test_data, 1);
+    
+    printf("LOG: Minimal vterm_input_write succeeded!\n");
+    
+    // Clean up test instance
+    vterm_free(test_vterm);
+    printf("LOG: Minimal test completed successfully\n");
+
+    // Now try with our actual size
+    printf("LOG: Creating full-size libvterm instance (%dx%d)\n", rows, cols);
+    vterm = vterm_new(rows, cols);
+    if (!vterm) {
+        printf("Error: Failed to create full-size libvterm instance\n");
+        return -1;
+    }
+    printf("LOG: Full-size libvterm instance created successfully\n");
 
     // Configure libvterm
     printf("LOG: Configuring libvterm\n");
@@ -186,11 +216,11 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     }
     printf("LOG: Screen interface obtained\n");
 
-    // Set up screen callbacks - TEMPORARILY DISABLE TO ISOLATE CRASH
+    // Set up screen callbacks - KEEP DISABLED FOR NOW
     printf("LOG: Setting up screen callbacks\n");
     VTermScreenCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
-    // callbacks.damage = damage_callback;  // DISABLED FOR NOW
+    // callbacks.damage = damage_callback;  // STILL DISABLED
     
     vterm_screen_set_callbacks(screen, &callbacks, screen);
     printf("LOG: Screen callbacks set (damage callback disabled)\n");
@@ -271,21 +301,33 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     printf("LOG: About to call vterm_input_write...\n");
     fflush(stdout);  // Force output before potential crash
     
-    // SAFETY: Try feeding data one byte at a time to isolate the problem
-    printf("LOG: Processing data byte by byte\n");
+    // NEW APPROACH: Try with smaller chunks and more error checking
+    printf("LOG: Processing data in small chunks\n");
     
-    for (size_t i = 0; i < len; i++) {
-        printf("LOG: Processing byte %zu: 0x%02x ('%c')\n", i, (unsigned char)data[i], 
-               isprint(data[i]) ? data[i] : '.');
+    const size_t chunk_size = 1;  // Process one byte at a time
+    for (size_t offset = 0; offset < len; offset += chunk_size) {
+        size_t remaining = len - offset;
+        size_t current_chunk = (remaining < chunk_size) ? remaining : chunk_size;
+        
+        printf("LOG: Processing chunk %zu-%zu (%zu bytes)\n", offset, offset + current_chunk - 1, current_chunk);
         fflush(stdout);
         
-        // Try to call vterm_input_write with just one byte
-        vterm_input_write(vterm, &data[i], 1);
+        // Add memory barrier and validation before each call
+        __sync_synchronize();  // Memory barrier
         
-        printf("LOG: Byte %zu processed successfully\n", i);
+        // Validate vterm is still valid
+        if (!vterm) {
+            printf("ERROR: vterm became NULL during processing!\n");
+            return;
+        }
+        
+        // Try the actual call
+        vterm_input_write(vterm, data + offset, current_chunk);
+        
+        printf("LOG: Chunk %zu processed successfully\n", offset / chunk_size);
     }
     
-    printf("LOG: All bytes processed successfully\n");
+    printf("LOG: All chunks processed successfully\n");
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
 }
