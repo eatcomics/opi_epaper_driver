@@ -60,6 +60,8 @@ int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
 }
 
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
+    printf("vterm_init: Starting initialization...\n");
+    
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
         return -1;
@@ -89,6 +91,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     memset(buffer, 0xFF, buffer_size);
 
     // Initialize libvterm with error checking
+    printf("Creating vterm instance...\n");
     vterm = vterm_new(rows, cols);
     if (!vterm) {
         printf("Error: Failed to create vterm instance\n");
@@ -98,9 +101,11 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Created vterm instance\n");
 
     // Configure vterm
+    printf("Configuring vterm...\n");
     vterm_set_utf8(vterm, 1);
     
     // Get the screen
+    printf("Getting vterm screen...\n");
     screen = vterm_obtain_screen(vterm);
     if (!screen) {
         printf("Error: Failed to obtain vterm screen\n");
@@ -112,14 +117,17 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Obtained vterm screen\n");
 
     // Set up callbacks - be very careful here
+    printf("Setting up callbacks...\n");
     VTermScreenCallbacks callbacks = {0}; // Initialize all to NULL/0
     callbacks.damage = damage_callback;
     
     vterm_screen_set_callbacks(screen, &callbacks, screen);
     
+    printf("Callbacks set, resetting screen...\n");
     // Reset the screen
     vterm_screen_reset(screen, 1);
     
+    printf("Screen reset, flushing damage...\n");
     // Force a flush to make sure everything is set up
     vterm_screen_flush_damage(screen);
 
@@ -143,8 +151,25 @@ void vterm_destroy(void) {
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
-    if (!vterm_initialized || !vterm || !screen || !data || len == 0) {
-        printf("vterm_feed_output: invalid state or parameters\n");
+    printf("vterm_feed_output: Called with len=%zu\n", len);
+    
+    if (!vterm_initialized) {
+        printf("vterm_feed_output: vterm not initialized\n");
+        return;
+    }
+    
+    if (!vterm) {
+        printf("vterm_feed_output: vterm is NULL\n");
+        return;
+    }
+    
+    if (!screen) {
+        printf("vterm_feed_output: screen is NULL\n");
+        return;
+    }
+    
+    if (!data || len == 0) {
+        printf("vterm_feed_output: invalid data or length\n");
         return;
     }
     
@@ -154,9 +179,9 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     }
     
     // Limit the amount of data we process at once
-    if (len > 256) {
-        printf("vterm_feed_output: truncating large input from %zu to 256 bytes\n", len);
-        len = 256;
+    if (len > 64) {
+        printf("vterm_feed_output: truncating large input from %zu to 64 bytes\n", len);
+        len = 64;
     }
     
     printf("Feeding %zu bytes to vterm: ", len);
@@ -172,21 +197,30 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    // Process data in small chunks to be safe
-    const size_t chunk_size = 16;
-    for (size_t offset = 0; offset < len; offset += chunk_size) {
-        size_t this_chunk = (offset + chunk_size > len) ? (len - offset) : chunk_size;
+    // Try to process data one byte at a time to isolate the crash
+    for (size_t i = 0; i < len; i++) {
+        printf("Processing byte %zu: 0x%02x ('%c')\n", i, (unsigned char)data[i], 
+               isprint(data[i]) ? data[i] : '?');
         
-        printf("Processing chunk at offset %zu, size %zu\n", offset, this_chunk);
+        // Check vterm state before each call
+        if (!vterm || !screen) {
+            printf("ERROR: vterm or screen became NULL during processing!\n");
+            return;
+        }
         
-        // Feed the chunk
-        vterm_input_write(vterm, &data[offset], this_chunk);
+        printf("About to call vterm_input_write for byte %zu...\n", i);
         
-        // Flush damage after each chunk
+        // Try the actual vterm call - this is where it's probably crashing
+        vterm_input_write(vterm, &data[i], 1);
+        
+        printf("Successfully processed byte %zu\n", i);
+        
+        // Flush damage after each byte
+        printf("Flushing damage after byte %zu...\n", i);
         vterm_screen_flush_damage(screen);
         
-        // Small delay to prevent overwhelming the system
-        usleep(1000); // 1ms
+        // Small delay
+        usleep(10000); // 10ms
     }
     
     printf("Finished feeding data to vterm\n");
@@ -355,13 +389,13 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 // --- Internal Functions ---
 
 static int damage_callback(VTermRect rect, void *user) {
+    printf("damage_callback: Called with rect (%d,%d) to (%d,%d)\n", 
+           rect.start_row, rect.start_col, rect.end_row, rect.end_col);
+    
     if (!vterm_initialized || !screen || !vterm_buffer) {
         printf("damage_callback: invalid state\n");
         return 0;
     }
-
-    printf("Damage callback: rows %d-%d, cols %d-%d\n", 
-           rect.start_row, rect.end_row, rect.start_col, rect.end_col);
 
     // Validate rectangle bounds
     if (rect.start_row < 0 || rect.end_row > term_rows ||
