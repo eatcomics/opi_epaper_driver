@@ -1,6 +1,6 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
-#include "font_loader.h"
+#include "font8x16.h"
 #include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
@@ -23,7 +23,6 @@ static VTerm *vterm = NULL;
 static VTermScreen *screen = NULL;
 static int term_rows, term_cols;
 static int pty_fd = -1;
-static int font_loader_available = 0;
 
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
@@ -55,36 +54,6 @@ int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
     }
 }
 
-// UTF-8 to Unicode conversion
-uint32_t utf8_to_unicode(const char *utf8, int *bytes_consumed) {
-    const unsigned char *s = (const unsigned char *)utf8;
-    uint32_t codepoint = 0;
-    
-    if (s[0] < 0x80) {
-        // 1-byte sequence (ASCII)
-        codepoint = s[0];
-        *bytes_consumed = 1;
-    } else if ((s[0] & 0xE0) == 0xC0) {
-        // 2-byte sequence
-        codepoint = ((s[0] & 0x1F) << 6) | (s[1] & 0x3F);
-        *bytes_consumed = 2;
-    } else if ((s[0] & 0xF0) == 0xE0) {
-        // 3-byte sequence
-        codepoint = ((s[0] & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
-        *bytes_consumed = 3;
-    } else if ((s[0] & 0xF8) == 0xF0) {
-        // 4-byte sequence
-        codepoint = ((s[0] & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
-        *bytes_consumed = 4;
-    } else {
-        // Invalid UTF-8
-        codepoint = 0xFFFD; // Replacement character
-        *bytes_consumed = 1;
-    }
-    
-    return codepoint;
-}
-
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
@@ -98,15 +67,6 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 
     printf("Initializing vterm: %dx%d\n", cols, rows);
 
-    // Initialize font loader (optional)
-    if (font_loader_init() == 0) {
-        font_loader_available = 1;
-        printf("Font loader initialized successfully\n");
-    } else {
-        font_loader_available = 0;
-        printf("Warning: Font loader initialization failed, using fallback rendering\n");
-    }
-
     // Clear the buffer initially
     size_t buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
     memset(buffer, 0xFF, buffer_size);
@@ -115,10 +75,6 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     vterm = vterm_new(rows, cols);
     if (!vterm) {
         printf("Error: Failed to create vterm instance\n");
-        if (font_loader_available) {
-            font_loader_cleanup();
-            font_loader_available = 0;
-        }
         return -1;
     }
 
@@ -130,10 +86,6 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         printf("Error: Failed to obtain vterm screen\n");
         vterm_free(vterm);
         vterm = NULL;
-        if (font_loader_available) {
-            font_loader_cleanup();
-            font_loader_available = 0;
-        }
         return -1;
     }
 
@@ -155,11 +107,6 @@ void vterm_destroy(void) {
         vterm = NULL;
     }
     screen = NULL;
-    
-    if (font_loader_available) {
-        font_loader_cleanup();
-        font_loader_available = 0;
-    }
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
@@ -264,6 +211,12 @@ void set_pixel(int x, int y, int color) {
     int byte_index = (y * EPD_7IN5_V2_WIDTH + x) / 8;
     int bit_index = 7 - (x % 8);
     
+    // Bounds check for buffer access
+    size_t buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
+    if (byte_index < 0 || byte_index >= buffer_size) {
+        return;
+    }
+    
     if (color == COLOR_BLACK) {
         vterm_buffer[byte_index] &= ~(1 << bit_index); // Set bit to 0 for black
     } else {
@@ -279,7 +232,6 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
-/*
 // Fallback character rendering using built-in font
 void draw_char_fallback(int x, int y, char ch, int color) {
     extern const uint8_t font8x16[96][16];
@@ -296,29 +248,6 @@ void draw_char_fallback(int x, int y, char ch, int color) {
             if (bits & (1 << (7 - col))) {
                 set_pixel(x + col, y + row, color);
             }
-        }
-    }
-}
-*/
-
-void draw_unicode_char(int x, int y, uint32_t codepoint, int color) {
-    // Clear background first
-    draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
-
-    if (font_loader_available) {
-        int width, height, advance;
-        const uint8_t *bitmap = get_char_bitmap(codepoint, &width, &height, &advance);
-        
-        if (bitmap) {
-            // Draw character bitmap
-            for (int row = 0; row < height && row < CELL_HEIGHT; row++) {
-                for (int col = 0; col < width && col < CELL_WIDTH; col++) {
-                    if (bitmap[row * width + col]) {
-                        set_pixel(x + col, y + row, color);
-                    }
-                }
-            }
-            return;
         }
     }
 }
@@ -352,6 +281,11 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
     int x = col * CELL_WIDTH;
     int y = row * CELL_HEIGHT;
 
+    // Bounds check
+    if (x < 0 || x >= EPD_7IN5_V2_WIDTH || y < 0 || y >= EPD_7IN5_V2_HEIGHT) {
+        return;
+    }
+
     // Clear the cell background first
     draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
 
@@ -360,6 +294,11 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
         return;
     }
 
-    // Render the Unicode character
-    draw_unicode_char(x, y, cell->chars[0], COLOR_BLACK);
+    // For now, just render ASCII characters using the fallback font
+    if (cell->chars[0] < 128) {
+        draw_char_fallback(x, y, (char)cell->chars[0], COLOR_BLACK);
+    } else {
+        // For non-ASCII, draw a placeholder box
+        draw_rect(x + 1, y + 1, CELL_WIDTH - 2, CELL_HEIGHT - 2, COLOR_BLACK);
+    }
 }

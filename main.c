@@ -147,6 +147,19 @@ int main (void) {
     int run = 1;
     last_input_time = current_millis();
     
+    // Give the shell a moment to start up and send initial output
+    usleep(100000); // 100ms
+    
+    // Read any initial output from the shell
+    char buf[4096];
+    ssize_t n = read(pty_fd, buf, sizeof(buf));
+    if (n > 0) {
+        printf("Initial shell output: %zd bytes\n", n);
+        vterm_feed_output(buf, n, image);
+        vterm_redraw(image);
+        last_input_time = current_millis();
+    }
+    
     // Da main loop
     while (run && !cleanup_requested) {
         int activity = 0;
@@ -161,8 +174,7 @@ int main (void) {
         }
 
         // Handle PTY output
-        char buf[4096];
-        ssize_t n = read(pty_fd, buf, sizeof(buf));
+        n = read(pty_fd, buf, sizeof(buf));
         if (n > 0) {
             vterm_feed_output(buf, n, image);
             last_input_time = current_millis();
