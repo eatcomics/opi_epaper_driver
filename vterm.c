@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <linux/input-event-codes.h>
 
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
@@ -62,6 +63,47 @@ static void move_cursor(int row, int col);
 static void put_char_at(int row, int col, char ch);
 static void render_screen_buffer(void);
 static void save_line_to_scrollback(int row);
+
+// Key mapping table for Linux input event codes to ASCII
+static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
+    // Handle letters
+    if (keycode >= KEY_A && keycode <= KEY_Z) {
+        char base = 'a' + (keycode - KEY_A);
+        return shift_pressed ? (base - 'a' + 'A') : base;
+    }
+    
+    // Handle numbers
+    if (keycode >= KEY_1 && keycode <= KEY_9) {
+        if (shift_pressed) {
+            // Shifted number keys
+            const char shifted[] = "!@#$%^&*()";
+            return shifted[keycode - KEY_1];
+        } else {
+            return '1' + (keycode - KEY_1);
+        }
+    }
+    
+    if (keycode == KEY_0) {
+        return shift_pressed ? ')' : '0';
+    }
+    
+    // Handle special characters
+    switch (keycode) {
+        case KEY_SPACE: return ' ';
+        case KEY_MINUS: return shift_pressed ? '_' : '-';
+        case KEY_EQUAL: return shift_pressed ? '+' : '=';
+        case KEY_LEFTBRACE: return shift_pressed ? '{' : '[';
+        case KEY_RIGHTBRACE: return shift_pressed ? '}' : ']';
+        case KEY_BACKSLASH: return shift_pressed ? '|' : '\\';
+        case KEY_SEMICOLON: return shift_pressed ? ':' : ';';
+        case KEY_APOSTROPHE: return shift_pressed ? '"' : '\'';
+        case KEY_GRAVE: return shift_pressed ? '~' : '`';
+        case KEY_COMMA: return shift_pressed ? '<' : ',';
+        case KEY_DOT: return shift_pressed ? '>' : '.';
+        case KEY_SLASH: return shift_pressed ? '?' : '/';
+        default: return 0;
+    }
+}
 
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Initializing enhanced terminal emulator...\n");
@@ -280,84 +322,99 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
         return;
     }
 
-    if (keycode >= 32 && keycode < 127) {
-        // Printable ASCII character
-        char ch = (char)keycode;
-        
-        // Handle Ctrl combinations
-        if (modifiers & 0x04) { // Ctrl modifier
-            if (keycode >= 'a' && keycode <= 'z') {
-                ch = keycode - 'a' + 1;
-            } else if (keycode >= 'A' && keycode <= 'Z') {
-                ch = keycode - 'A' + 1;
-            }
+    printf("Processing key: %u, modifiers: %d\n", keycode, modifiers);
+
+    // Check for Ctrl combinations first
+    int ctrl_pressed = (modifiers & 0x04) != 0;
+    int shift_pressed = (modifiers & 0x01) != 0;
+    
+    if (ctrl_pressed) {
+        // Handle Ctrl+letter combinations
+        if (keycode >= KEY_A && keycode <= KEY_Z) {
+            char ctrl_char = keycode - KEY_A + 1;  // Ctrl+A = 1, Ctrl+B = 2, etc.
+            printf("Sending Ctrl+%c (0x%02x)\n", 'A' + keycode - KEY_A, ctrl_char);
+            write(pty_fd, &ctrl_char, 1);
+            return;
         }
         
-        write(pty_fd, &ch, 1);
+        // Handle other Ctrl combinations
+        switch (keycode) {
+            case KEY_SPACE:
+                {
+                    char null_char = 0;
+                    write(pty_fd, &null_char, 1);
+                    return;
+                }
+        }
+    }
+
+    // Handle special keys (non-printable)
+    switch (keycode) {
+        case KEY_ENTER:
+            printf("Sending Enter\n");
+            write(pty_fd, "\r", 1);
+            return;
+        case KEY_BACKSPACE:
+            printf("Sending Backspace\n");
+            write(pty_fd, "\x7f", 1);
+            return;
+        case KEY_TAB:
+            printf("Sending Tab\n");
+            write(pty_fd, "\t", 1);
+            return;
+        case KEY_ESC:
+            printf("Sending Escape\n");
+            write(pty_fd, "\x1b", 1);
+            return;
+        case KEY_UP:
+            printf("Sending Up Arrow\n");
+            write(pty_fd, "\x1b[A", 3);
+            return;
+        case KEY_DOWN:
+            printf("Sending Down Arrow\n");
+            write(pty_fd, "\x1b[B", 3);
+            return;
+        case KEY_RIGHT:
+            printf("Sending Right Arrow\n");
+            write(pty_fd, "\x1b[C", 3);
+            return;
+        case KEY_LEFT:
+            printf("Sending Left Arrow\n");
+            write(pty_fd, "\x1b[D", 3);
+            return;
+        case KEY_HOME:
+            printf("Sending Home\n");
+            write(pty_fd, "\x1b[H", 3);
+            return;
+        case KEY_END:
+            printf("Sending End\n");
+            write(pty_fd, "\x1b[F", 3);
+            return;
+        case KEY_PAGEUP:
+            printf("Sending Page Up\n");
+            write(pty_fd, "\x1b[5~", 4);
+            return;
+        case KEY_PAGEDOWN:
+            printf("Sending Page Down\n");
+            write(pty_fd, "\x1b[6~", 4);
+            return;
+        case KEY_DELETE:
+            printf("Sending Delete\n");
+            write(pty_fd, "\x1b[3~", 4);
+            return;
+        case KEY_INSERT:
+            printf("Sending Insert\n");
+            write(pty_fd, "\x1b[2~", 4);
+            return;
+    }
+
+    // Handle printable characters
+    char ascii_char = keycode_to_ascii(keycode, shift_pressed);
+    if (ascii_char != 0) {
+        printf("Sending ASCII: '%c' (0x%02x)\n", ascii_char, ascii_char);
+        write(pty_fd, &ascii_char, 1);
     } else {
-        // Special keys
-        VTermKey key = convert_keycode_to_vtermkey(keycode);
-        if (key != VTERM_KEY_NONE) {
-            char seq[16];
-            int len = 0;
-            
-            switch (key) {
-                case VTERM_KEY_ENTER:
-                    seq[0] = '\r';
-                    len = 1;
-                    break;
-                case VTERM_KEY_BACKSPACE:
-                    seq[0] = '\x7f';
-                    len = 1;
-                    break;
-                case VTERM_KEY_TAB:
-                    seq[0] = '\t';
-                    len = 1;
-                    break;
-                case VTERM_KEY_ESCAPE:
-                    seq[0] = '\x1b';
-                    len = 1;
-                    break;
-                case VTERM_KEY_UP:
-                    strcpy(seq, "\x1b[A");
-                    len = 3;
-                    break;
-                case VTERM_KEY_DOWN:
-                    strcpy(seq, "\x1b[B");
-                    len = 3;
-                    break;
-                case VTERM_KEY_RIGHT:
-                    strcpy(seq, "\x1b[C");
-                    len = 3;
-                    break;
-                case VTERM_KEY_LEFT:
-                    strcpy(seq, "\x1b[D");
-                    len = 3;
-                    break;
-                case VTERM_KEY_HOME:
-                    strcpy(seq, "\x1b[H");
-                    len = 3;
-                    break;
-                case VTERM_KEY_END:
-                    strcpy(seq, "\x1b[F");
-                    len = 3;
-                    break;
-                case VTERM_KEY_PAGEUP:
-                    strcpy(seq, "\x1b[5~");
-                    len = 4;
-                    break;
-                case VTERM_KEY_PAGEDOWN:
-                    strcpy(seq, "\x1b[6~");
-                    len = 4;
-                    break;
-                default:
-                    break;
-            }
-            
-            if (len > 0) {
-                write(pty_fd, seq, len);
-            }
-        }
+        printf("Unhandled keycode: %u\n", keycode);
     }
 }
 
@@ -631,6 +688,8 @@ static void render_screen_buffer(void) {
     // Clear the framebuffer
     memset(vterm_buffer, 0xFF, buffer_size);
     
+    int rendered_chars = 0;
+    
     // Render each character
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
@@ -658,6 +717,7 @@ static void render_screen_buffer(void) {
                 // Draw character
                 if (ch != ' ') {
                     draw_char_fallback(x, y, ch, fg_color);
+                    rendered_chars++;
                 }
                 
                 // Draw underline if needed
@@ -667,6 +727,8 @@ static void render_screen_buffer(void) {
             }
         }
     }
+    
+    printf("Rendered %d non-empty cells\n", rendered_chars);
     
     // Draw cursor if visible
     if (cursor_visible && cursor_row >= 0 && cursor_row < term_rows && 

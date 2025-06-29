@@ -16,8 +16,8 @@
 
 unsigned long last_input_time = 0;
 unsigned long last_refresh_time = 0;
-#define QUIET_TIMEOUT_MS 1500  // Reduced for better responsiveness
-#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between full refreshes
+#define QUIET_TIMEOUT_MS 800   // Reduced for better responsiveness
+#define MIN_REFRESH_INTERVAL_MS 300  // Minimum time between full refreshes
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -155,7 +155,7 @@ int main (void) {
     usleep(300000); // 300ms
     
     // Read any initial output from the shell
-    char buf[256]; // Larger buffer for better performance
+    char buf[512]; // Even larger buffer for better performance
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0';
@@ -223,7 +223,7 @@ int main (void) {
         }
 
         // Shorter sleep for better responsiveness
-        usleep(20000); // 20ms
+        usleep(10000); // 10ms - even faster for better keyboard response
     }
     
     printf("Exiting main loop, cleaning up...\n");
