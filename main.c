@@ -10,6 +10,8 @@
 #include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 unsigned long last_input_time = 0;
 #define QUIET_TIMEOUT_MS 1200
