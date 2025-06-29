@@ -26,6 +26,7 @@ static VTermScreen *screen = NULL;
 static int term_rows, term_cols;
 static int pty_fd = -1;
 static int damage_pending = 0;
+static int vterm_initialized = 0;
 
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
@@ -150,6 +151,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     pty_fd = pty;
     vterm_buffer = buffer;
     buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
+    vterm_initialized = 0;
 
     printf("Terminal dimensions: %dx%d\n", cols, rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
@@ -204,6 +206,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("LOG: Framebuffer cleared\n");
 
     damage_pending = 0;
+    vterm_initialized = 1;
 
     printf("libvterm terminal initialized successfully\n");
     return 0;
@@ -211,6 +214,8 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 
 void vterm_destroy(void) {
     printf("LOG: vterm_destroy START\n");
+    vterm_initialized = 0;
+    
     if (vterm) {
         printf("Destroying libvterm terminal\n");
         vterm_free(vterm);
@@ -227,17 +232,42 @@ void vterm_destroy(void) {
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     printf("LOG: vterm_feed_output START - len=%zu, buffer=%p\n", len, buffer);
     
-    if (!data || len == 0 || !buffer || !vterm) {
-        printf("LOG: vterm_feed_output - invalid parameters\n");
+    if (!data || len == 0 || !buffer) {
+        printf("LOG: vterm_feed_output - invalid parameters (data=%p, len=%zu, buffer=%p)\n", data, len, buffer);
+        return;
+    }
+    
+    if (!vterm || !vterm_initialized) {
+        printf("LOG: vterm_feed_output - vterm not initialized (vterm=%p, initialized=%d)\n", vterm, vterm_initialized);
         return;
     }
     
     vterm_buffer = buffer;
     
-    // Feed data to libvterm
-    printf("LOG: Feeding %zu bytes to libvterm\n", len);
+    // Add safety checks before calling vterm_input_write
+    printf("LOG: Pre-flight checks...\n");
+    printf("LOG: - vterm pointer: %p\n", vterm);
+    printf("LOG: - data pointer: %p\n", data);
+    printf("LOG: - data length: %zu\n", len);
+    printf("LOG: - first few bytes: ");
+    for (size_t i = 0; i < (len < 10 ? len : 10); i++) {
+        printf("%02x ", (unsigned char)data[i]);
+    }
+    printf("\n");
+    
+    // Try to feed data to libvterm with extra safety
+    printf("LOG: About to call vterm_input_write...\n");
+    fflush(stdout);  // Force output before potential crash
+    
+    // CRITICAL: Add a test to see if vterm is valid
+    printf("LOG: Testing vterm validity...\n");
+    VTermSize size;
+    vterm_get_size(vterm, &size);
+    printf("LOG: vterm size check passed: %dx%d\n", size.cols, size.rows);
+    
+    printf("LOG: Calling vterm_input_write with %zu bytes\n", len);
     vterm_input_write(vterm, data, len);
-    printf("LOG: Data fed to libvterm successfully\n");
+    printf("LOG: vterm_input_write returned successfully\n");
     
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
@@ -246,8 +276,8 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
 void vterm_process_input(uint32_t keycode, int modifiers) {
     printf("LOG: vterm_process_input START - keycode=%u, modifiers=%d\n", keycode, modifiers);
     
-    if (pty_fd < 0 || !vterm) {
-        printf("LOG: vterm_process_input - invalid state (pty_fd=%d, vterm=%p)\n", pty_fd, vterm);
+    if (pty_fd < 0 || !vterm || !vterm_initialized) {
+        printf("LOG: vterm_process_input - invalid state (pty_fd=%d, vterm=%p, initialized=%d)\n", pty_fd, vterm, vterm_initialized);
         return;
     }
 
@@ -303,8 +333,8 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 void vterm_redraw(uint8_t *buffer) {
     printf("LOG: vterm_redraw START - buffer=%p\n", buffer);
     
-    if (!buffer || !screen) {
-        printf("vterm_redraw: invalid parameters (buffer=%p, screen=%p)\n", buffer, screen);
+    if (!buffer || !screen || !vterm_initialized) {
+        printf("vterm_redraw: invalid parameters (buffer=%p, screen=%p, initialized=%d)\n", buffer, screen, vterm_initialized);
         return;
     }
     
