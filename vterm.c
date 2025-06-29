@@ -186,14 +186,14 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     }
     printf("LOG: Screen interface obtained\n");
 
-    // Set up screen callbacks
+    // Set up screen callbacks - TEMPORARILY DISABLE TO ISOLATE CRASH
     printf("LOG: Setting up screen callbacks\n");
     VTermScreenCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
-    callbacks.damage = damage_callback;
+    // callbacks.damage = damage_callback;  // DISABLED FOR NOW
     
     vterm_screen_set_callbacks(screen, &callbacks, screen);
-    printf("LOG: Screen callbacks set\n");
+    printf("LOG: Screen callbacks set (damage callback disabled)\n");
 
     // Reset and initialize
     printf("LOG: Resetting screen\n");
@@ -244,10 +244,50 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    printf("LOG: Calling vterm_input_write with %zu bytes\n", len);
-    vterm_input_write(vterm, data, len);
-    printf("LOG: vterm_input_write returned successfully\n");
+    // SAFETY: Print first few bytes of data to debug
+    printf("LOG: Data preview (first 20 bytes): ");
+    for (size_t i = 0; i < len && i < 20; i++) {
+        printf("%02x ", (unsigned char)data[i]);
+    }
+    printf("\n");
     
+    // SAFETY: Validate vterm pointer before use
+    printf("LOG: Validating vterm pointer: %p\n", vterm);
+    if (!vterm) {
+        printf("ERROR: vterm is NULL!\n");
+        return;
+    }
+    
+    // SAFETY: Try to validate vterm structure by checking size
+    int check_rows, check_cols;
+    vterm_get_size(vterm, &check_rows, &check_cols);
+    printf("LOG: vterm size validation: %dx%d (expected %dx%d)\n", check_cols, check_rows, term_cols, term_rows);
+    
+    if (check_rows != term_rows || check_cols != term_cols) {
+        printf("ERROR: vterm size mismatch!\n");
+        return;
+    }
+    
+    printf("LOG: About to call vterm_input_write...\n");
+    fflush(stdout);  // Force output before potential crash
+    
+    // SAFETY: Try feeding data in smaller chunks to isolate the problem
+    const size_t chunk_size = 16;
+    size_t processed = 0;
+    
+    while (processed < len) {
+        size_t current_chunk = (len - processed > chunk_size) ? chunk_size : (len - processed);
+        
+        printf("LOG: Processing chunk %zu-%zu (%zu bytes)\n", processed, processed + current_chunk - 1, current_chunk);
+        fflush(stdout);
+        
+        vterm_input_write(vterm, data + processed, current_chunk);
+        
+        printf("LOG: Chunk processed successfully\n");
+        processed += current_chunk;
+    }
+    
+    printf("LOG: All chunks processed successfully\n");
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
 }
