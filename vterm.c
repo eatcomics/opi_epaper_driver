@@ -1,6 +1,6 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
-#include "font8x16.h"
+#include "unicode_font.h"
 #include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
@@ -54,11 +54,46 @@ int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
     }
 }
 
+// UTF-8 to Unicode conversion
+uint32_t utf8_to_unicode(const char *utf8, int *bytes_consumed) {
+    const unsigned char *s = (const unsigned char *)utf8;
+    uint32_t codepoint = 0;
+    
+    if (s[0] < 0x80) {
+        // 1-byte sequence (ASCII)
+        codepoint = s[0];
+        *bytes_consumed = 1;
+    } else if ((s[0] & 0xE0) == 0xC0) {
+        // 2-byte sequence
+        codepoint = ((s[0] & 0x1F) << 6) | (s[1] & 0x3F);
+        *bytes_consumed = 2;
+    } else if ((s[0] & 0xF0) == 0xE0) {
+        // 3-byte sequence
+        codepoint = ((s[0] & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+        *bytes_consumed = 3;
+    } else if ((s[0] & 0xF8) == 0xF0) {
+        // 4-byte sequence
+        codepoint = ((s[0] & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+        *bytes_consumed = 4;
+    } else {
+        // Invalid UTF-8
+        codepoint = 0xFFFD; // Replacement character
+        *bytes_consumed = 1;
+    }
+    
+    return codepoint;
+}
+
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     term_rows = rows;
     term_cols = cols;
     pty_fd = pty;
     vterm_buffer = buffer;
+
+    // Initialize Unicode font system
+    if (unicode_font_init() != 0) {
+        return -1;
+    }
 
     // Clear the buffer initially
     memset(buffer, 0xFF, (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8);
@@ -80,6 +115,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 void vterm_destroy(void) {
     if (vterm)
         vterm_free(vterm);
+    unicode_font_cleanup();
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
@@ -185,14 +221,9 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
-void draw_char(int x, int y, char ch, int color) {
-    // Handle non-printable characters
-    if (ch < 0x20 || ch > 0x7F) {
-        ch = ' '; // Replace with space
-    }
+void draw_unicode_char(int x, int y, uint32_t codepoint, int color) {
+    const uint8_t *glyph = get_glyph_bitmap(codepoint);
     
-    const uint8_t *glyph = font8x16[ch - 0x20];
-
     for (int row = 0; row < CELL_HEIGHT; row++) {
         uint8_t bits = glyph[row];
         for (int col = 0; col < CELL_WIDTH; col++) {
@@ -236,10 +267,6 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
         return;
     }
 
-    // Convert Unicode to UTF-8 and render the first character
-    char ch[5] = {0};
-    int len = vterm_unicode_to_utf8(cell->chars[0], ch);
-    if (len > 0 && ch[0] >= 0x20 && ch[0] <= 0x7F) {
-        draw_char(x, y, ch[0], COLOR_BLACK);
-    }
+    // Render the Unicode character
+    draw_unicode_char(x, y, cell->chars[0], COLOR_BLACK);
 }
