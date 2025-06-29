@@ -16,29 +16,43 @@ static const char* font_search_paths[] = {
     "~/.fonts/",
     "/usr/share/fonts/truetype/",
     "/usr/share/fonts/opentype/",
+    "/usr/share/fonts/truetype/dejavu/",
+    "/usr/share/fonts/truetype/liberation/",
+    "/usr/share/fonts/truetype/noto/",
+    "/usr/share/fonts/opentype/noto/",
     NULL
 };
 
 // Preferred fonts for different scripts
 static const char* latin_fonts[] = {
     "DejaVuSansMono.ttf",
+    "DejaVuSans.ttf",
     "LiberationMono-Regular.ttf", 
+    "Liberation",
     "UbuntuMono-R.ttf",
+    "Ubuntu",
     "Courier New.ttf",
     "consolas.ttf",
     "monaco.ttf",
+    "mono",
+    "Sans",
     NULL
 };
 
 static const char* cjk_fonts[] = {
-    "NotoSansCJK-Regular.ttc",
-    "NotoSansJP-Regular.otf",
+    "NotoSansCJK",
+    "NotoSansJP",
+    "NotoSansKR", 
+    "NotoSansSC",
+    "NotoSansTC",
     "DroidSansFallback.ttf",
     "wqy-microhei.ttc",
     "fireflysung.ttf",
     "SimSun.ttf",
     "msyh.ttf",
     "YuGothic.ttf",
+    "Noto",
+    "CJK",
     NULL
 };
 
@@ -65,11 +79,16 @@ int search_font_recursive(const char *dir_path, const char *font_name, char *res
             }
         } else if (S_ISREG(st.st_mode)) {
             // Check if this is the font we're looking for
-            if (strcasestr(entry->d_name, font_name) != NULL) {
-                strncpy(result_path, full_path, result_size - 1);
-                result_path[result_size - 1] = '\0';
-                closedir(dir);
-                return 1;
+            const char *ext = strrchr(entry->d_name, '.');
+            if (ext && (strcasecmp(ext, ".ttf") == 0 || 
+                       strcasecmp(ext, ".otf") == 0 || 
+                       strcasecmp(ext, ".ttc") == 0)) {
+                if (strcasestr(entry->d_name, font_name) != NULL) {
+                    strncpy(result_path, full_path, result_size - 1);
+                    result_path[result_size - 1] = '\0';
+                    closedir(dir);
+                    return 1;
+                }
             }
         }
     }
@@ -157,12 +176,14 @@ int font_loader_init(void) {
     }
 
     if (!found_cjk) {
-        printf("Warning: No suitable CJK font found\n");
+        printf("Warning: No suitable CJK font found - CJK characters will show as boxes\n");
+        printf("To install CJK fonts, run: sudo apt install fonts-noto-cjk\n");
     }
 
     // Initialize cache
     font_manager.cache.count = 0;
 
+    // Return success if we found at least one font
     return (found_latin || found_cjk) ? 0 : -1;
 }
 
@@ -235,6 +256,9 @@ int render_char_to_bitmap(uint32_t codepoint, uint8_t *bitmap, int max_width, in
         face = font_manager.face_cjk;
     } else if (font_manager.face_regular) {
         face = font_manager.face_regular;
+    } else if (font_manager.face_cjk) {
+        // Fallback to CJK font for any character if no regular font
+        face = font_manager.face_cjk;
     }
 
     if (!face) {
@@ -245,8 +269,19 @@ int render_char_to_bitmap(uint32_t codepoint, uint8_t *bitmap, int max_width, in
     // Load glyph
     FT_UInt glyph_index = FT_Get_Char_Index(face, codepoint);
     if (glyph_index == 0) {
-        // Character not found in font
-        return -1;
+        // Character not found in this font, try the other font
+        if (face == font_manager.face_regular && font_manager.face_cjk) {
+            face = font_manager.face_cjk;
+            glyph_index = FT_Get_Char_Index(face, codepoint);
+        } else if (face == font_manager.face_cjk && font_manager.face_regular) {
+            face = font_manager.face_regular;
+            glyph_index = FT_Get_Char_Index(face, codepoint);
+        }
+        
+        if (glyph_index == 0) {
+            // Character not found in any font
+            return -1;
+        }
     }
 
     FT_Error error = FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT);
