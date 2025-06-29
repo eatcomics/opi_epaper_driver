@@ -102,6 +102,7 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
 
 // Utility function for libvterm compatibility
 int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
+    printf("LOG: vterm_unicode_to_utf8 called with codepoint=0x%x\n", codepoint);
     if (codepoint < 0x80) {
         buffer[0] = codepoint;
         return 1;
@@ -126,7 +127,7 @@ int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
 }
 
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
-    printf("Initializing libvterm terminal emulator...\n");
+    printf("LOG: vterm_init START - rows=%d, cols=%d, pty=%d, buffer=%p\n", rows, cols, pty, buffer);
     
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
@@ -140,6 +141,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 
     // Clean up any existing state
     if (vterm) {
+        printf("LOG: Cleaning up existing vterm\n");
         vterm_destroy();
     }
 
@@ -153,16 +155,21 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Buffer size: %zu bytes\n", buffer_size);
 
     // Create libvterm instance
+    printf("LOG: Creating libvterm instance\n");
     vterm = vterm_new(rows, cols);
     if (!vterm) {
         printf("Error: Failed to create libvterm instance\n");
         return -1;
     }
+    printf("LOG: libvterm instance created successfully\n");
 
     // Configure libvterm
+    printf("LOG: Configuring libvterm\n");
     vterm_set_utf8(vterm, 1);
+    printf("LOG: UTF-8 mode set\n");
     
     // Get screen interface
+    printf("LOG: Getting screen interface\n");
     screen = vterm_obtain_screen(vterm);
     if (!screen) {
         printf("Error: Failed to obtain libvterm screen\n");
@@ -170,19 +177,26 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         vterm = NULL;
         return -1;
     }
+    printf("LOG: Screen interface obtained\n");
 
     // Set up callbacks - CRITICAL: Initialize all fields to NULL first
+    printf("LOG: Setting up callbacks\n");
     VTermScreenCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.damage = damage_callback;
     
     vterm_screen_set_callbacks(screen, &callbacks, screen);
+    printf("LOG: Callbacks set\n");
 
     // Reset and initialize
+    printf("LOG: Resetting screen\n");
     vterm_screen_reset(screen, 1);
+    printf("LOG: Screen reset complete\n");
 
     // Clear the framebuffer
+    printf("LOG: Clearing framebuffer\n");
     memset(buffer, 0xFF, buffer_size);
+    printf("LOG: Framebuffer cleared\n");
 
     damage_pending = 0;
 
@@ -191,6 +205,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 }
 
 void vterm_destroy(void) {
+    printf("LOG: vterm_destroy START\n");
     if (vterm) {
         printf("Destroying libvterm terminal\n");
         vterm_free(vterm);
@@ -201,23 +216,33 @@ void vterm_destroy(void) {
     vterm_buffer = NULL;
     buffer_size = 0;
     damage_pending = 0;
+    printf("LOG: vterm_destroy COMPLETE\n");
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
+    printf("LOG: vterm_feed_output START - len=%zu, buffer=%p\n", len, buffer);
+    
     if (!data || len == 0 || !buffer || !vterm) {
+        printf("LOG: vterm_feed_output - invalid parameters\n");
         return;
     }
     
     vterm_buffer = buffer;
     
     // Feed data to libvterm
+    printf("LOG: Feeding %zu bytes to libvterm\n", len);
     vterm_input_write(vterm, data, len);
+    printf("LOG: Data fed to libvterm successfully\n");
     
     damage_pending = 1;
+    printf("LOG: vterm_feed_output COMPLETE\n");
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
+    printf("LOG: vterm_process_input START - keycode=%u, modifiers=%d\n", keycode, modifiers);
+    
     if (pty_fd < 0 || !vterm) {
+        printf("LOG: vterm_process_input - invalid state (pty_fd=%d, vterm=%p)\n", pty_fd, vterm);
         return;
     }
 
@@ -235,22 +260,19 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     if (alt_pressed) vterm_mods |= VTERM_MOD_ALT;
 
     // Handle special keys first
+    printf("LOG: Converting keycode to VTerm key\n");
     VTermKey vterm_key = convert_keycode_to_vtermkey(keycode);
     if (vterm_key != VTERM_KEY_NONE) {
         printf("Sending special key via libvterm\n");
         vterm_keyboard_key(vterm, vterm_key, vterm_mods);
         
-        // Get the output from libvterm and send to PTY
-        char output[64];
-        size_t output_len = vterm_output_read(vterm, output, sizeof(output));
-        if (output_len > 0) {
-            printf("libvterm generated %zu bytes for special key\n", output_len);
-            write(pty_fd, output, output_len);
-        }
+        // REMOVED: vterm_output_read() calls that were causing segfault
+        printf("LOG: Special key processed, skipping output read\n");
         return;
     }
 
     // Handle printable characters
+    printf("LOG: Converting keycode to ASCII\n");
     char ascii_char = keycode_to_ascii(keycode, shift_pressed);
     if (ascii_char != 0) {
         if (ctrl_pressed && ascii_char >= 'a' && ascii_char <= 'z') {
@@ -264,28 +286,20 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
             printf("Sending Ctrl+%c (0x%02x)\n", ascii_char, ctrl_char);
             write(pty_fd, &ctrl_char, 1);
         } else {
-            // Send via libvterm for proper handling
-            printf("Sending ASCII via libvterm: '%c' (0x%02x)\n", ascii_char, ascii_char);
-            vterm_keyboard_unichar(vterm, ascii_char, vterm_mods);
-            
-            // Get the output from libvterm and send to PTY
-            char output[64];
-            size_t output_len = vterm_output_read(vterm, output, sizeof(output));
-            if (output_len > 0) {
-                printf("libvterm generated %zu bytes for ASCII char\n", output_len);
-                write(pty_fd, output, output_len);
-            } else {
-                // Fallback: send directly
-                printf("Fallback: sending ASCII directly\n");
-                write(pty_fd, &ascii_char, 1);
-            }
+            // Send directly to PTY instead of through libvterm
+            printf("Sending ASCII directly: '%c' (0x%02x)\n", ascii_char, ascii_char);
+            write(pty_fd, &ascii_char, 1);
         }
     } else {
         printf("Unhandled keycode: %u\n", keycode);
     }
+    
+    printf("LOG: vterm_process_input COMPLETE\n");
 }
 
 void vterm_redraw(uint8_t *buffer) {
+    printf("LOG: vterm_redraw START - buffer=%p\n", buffer);
+    
     if (!buffer || !screen) {
         printf("vterm_redraw: invalid parameters (buffer=%p, screen=%p)\n", buffer, screen);
         return;
@@ -294,11 +308,13 @@ void vterm_redraw(uint8_t *buffer) {
     vterm_buffer = buffer;
     
     // Clear the framebuffer to white
+    printf("LOG: Clearing framebuffer\n");
     memset(buffer, 0xFF, buffer_size);
     
     VTermScreenCell cell;
     int rendered_chars = 0;
     
+    printf("LOG: Starting cell rendering loop\n");
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
             VTermPos pos = {.row = row, .col = col};
@@ -306,24 +322,36 @@ void vterm_redraw(uint8_t *buffer) {
             // Initialize cell to safe defaults
             memset(&cell, 0, sizeof(cell));
             
+            printf("LOG: Getting cell at row=%d, col=%d\n", row, col);
             if (vterm_screen_get_cell(screen, pos, &cell)) {
                 if (cell.chars[0] != 0) {
+                    printf("LOG: Rendering cell with char=0x%x\n", cell.chars[0]);
                     render_cell(col, row, &cell);
                     rendered_chars++;
                 }
+            } else {
+                printf("LOG: Failed to get cell at row=%d, col=%d\n", row, col);
             }
         }
     }
     
     printf("Rendered %d non-empty cells\n", rendered_chars);
+    printf("LOG: Calling flush_display\n");
     flush_display();
     damage_pending = 0;
+    printf("LOG: vterm_redraw COMPLETE\n");
 }
 
 void flush_display(void) {
+    printf("LOG: flush_display START\n");
     if (vterm_buffer) {
+        printf("LOG: Calling EPD_7IN5_V2_Display\n");
         EPD_7IN5_V2_Display(vterm_buffer);
+        printf("LOG: EPD_7IN5_V2_Display returned\n");
+    } else {
+        printf("LOG: flush_display - no buffer\n");
     }
+    printf("LOG: flush_display COMPLETE\n");
 }
 
 int vterm_has_pending_damage(void) {
@@ -389,7 +417,10 @@ static int damage_callback(VTermRect rect, void *user) {
 }
 
 static void render_cell(int col, int row, const VTermScreenCell *cell) {
+    printf("LOG: render_cell START - col=%d, row=%d, cell=%p\n", col, row, cell);
+    
     if (!cell || !vterm_buffer) {
+        printf("LOG: render_cell - invalid parameters\n");
         return;
     }
     
@@ -398,6 +429,7 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
 
     // Bounds checking
     if (x < 0 || y < 0 || x >= EPD_7IN5_V2_WIDTH || y >= EPD_7IN5_V2_HEIGHT) {
+        printf("LOG: render_cell - out of bounds x=%d, y=%d\n", x, y);
         return;
     }
 
@@ -413,20 +445,26 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
 
     // Draw background
     if (bg_color == COLOR_BLACK) {
+        printf("LOG: Drawing black background\n");
         draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_BLACK);
     }
 
     // Draw character if present
     if (cell->chars[0] != 0) {
+        printf("LOG: Converting unicode to UTF-8\n");
         char ch[5] = {0};
         int len = vterm_unicode_to_utf8(cell->chars[0], ch);
         if (len > 0 && ch[0] >= 0x20 && ch[0] <= 0x7F) {
+            printf("LOG: Drawing character '%c'\n", ch[0]);
             draw_char_fallback(x, y, ch[0], fg_color);
         }
     }
     
     // Draw underline if needed
     if (cell->attrs.underline) {
+        printf("LOG: Drawing underline\n");
         draw_rect(x, y + CELL_HEIGHT - 2, CELL_WIDTH, 1, fg_color);
     }
+    
+    printf("LOG: render_cell COMPLETE\n");
 }
