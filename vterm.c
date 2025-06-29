@@ -171,17 +171,11 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
         return -1;
     }
 
-    // Set up callbacks
-    VTermScreenCallbacks callbacks = {
-        .damage = damage_callback,
-        .moverect = NULL,
-        .movecursor = NULL,
-        .settermprop = NULL,
-        .bell = NULL,
-        .resize = NULL,
-        .sb_pushline = NULL,
-        .sb_popline = NULL,
-    };
+    // Set up callbacks - CRITICAL: Initialize all fields to NULL first
+    VTermScreenCallbacks callbacks;
+    memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.damage = damage_callback;
+    
     vterm_screen_set_callbacks(screen, &callbacks, screen);
 
     // Reset and initialize
@@ -293,6 +287,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 
 void vterm_redraw(uint8_t *buffer) {
     if (!buffer || !screen) {
+        printf("vterm_redraw: invalid parameters (buffer=%p, screen=%p)\n", buffer, screen);
         return;
     }
     
@@ -307,6 +302,10 @@ void vterm_redraw(uint8_t *buffer) {
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
             VTermPos pos = {.row = row, .col = col};
+            
+            // Initialize cell to safe defaults
+            memset(&cell, 0, sizeof(cell));
+            
             if (vterm_screen_get_cell(screen, pos, &cell)) {
                 if (cell.chars[0] != 0) {
                     render_cell(col, row, &cell);
@@ -390,8 +389,17 @@ static int damage_callback(VTermRect rect, void *user) {
 }
 
 static void render_cell(int col, int row, const VTermScreenCell *cell) {
+    if (!cell || !vterm_buffer) {
+        return;
+    }
+    
     int x = col * CELL_WIDTH;
     int y = row * CELL_HEIGHT;
+
+    // Bounds checking
+    if (x < 0 || y < 0 || x >= EPD_7IN5_V2_WIDTH || y >= EPD_7IN5_V2_HEIGHT) {
+        return;
+    }
 
     // Determine colors
     int fg_color = COLOR_BLACK;

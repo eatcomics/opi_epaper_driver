@@ -166,10 +166,12 @@ int main (void) {
         printf("Error reading initial output: %s\n", strerror(errno));
     }
     
-    // Do an initial redraw
+    // Do an initial redraw - SAFELY
     printf("Performing initial redraw...\n");
-    vterm_redraw(image);
-    last_refresh_time = current_millis();
+    if (image) {
+        vterm_redraw(image);
+        last_refresh_time = current_millis();
+    }
     
     // Main event loop with improved buffering
     while (run && !cleanup_requested) {
@@ -233,7 +235,7 @@ int main (void) {
             }
         }
         
-        if (should_refresh) {
+        if (should_refresh && image) {
             vterm_redraw(image);
             last_refresh_time = now;
         }
