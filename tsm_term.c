@@ -208,11 +208,11 @@ void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
                 break;
                 
             case STATE_OSC:
-                // OSC sequences end with BEL (0x07) or ESC \ 
+                // OSC sequences end with BEL (0x07) or ESC backslash
                 if (ch == 0x07) {
                     parser_state = STATE_NORMAL;
                 } else if (ch == 0x1B) {
-                    // Might be ESC \ sequence, but for simplicity just reset
+                    // Might be ESC backslash sequence, but for simplicity just reset
                     parser_state = STATE_NORMAL;
                 }
                 break;
@@ -232,7 +232,7 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
     // Check for modifier keys
     int ctrl_pressed = (modifiers & 0x04) != 0;
     int shift_pressed = (modifiers & 0x01) != 0;
-    int alt_pressed = (modifiers & 0x08) != 0;
+    // int alt_pressed = (modifiers & 0x08) != 0;  // Commented out to remove warning
 
     // Handle special keys first
     switch (keycode) {
@@ -330,7 +330,7 @@ static void set_pixel(int x, int y, int color) {
     int byte_index = (y * EPD_7IN5_V2_WIDTH + x) / 8;
     int bit_index = 7 - (x % 8);
     
-    if (byte_index < 0 || byte_index >= buffer_size) {
+    if (byte_index < 0 || byte_index >= (int)buffer_size) {
         return;
     }
     
