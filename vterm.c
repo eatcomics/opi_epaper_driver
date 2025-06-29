@@ -265,9 +265,23 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     vterm_get_size(vterm, &test_rows, &test_cols);
     printf("LOG: vterm size check passed: %dx%d\n", test_cols, test_rows);
     
-    printf("LOG: Calling vterm_input_write with %zu bytes\n", len);
+    // SAFETY: Temporarily disable callbacks to see if they're causing the crash
+    printf("LOG: Temporarily disabling callbacks for safety...\n");
+    VTermScreenCallbacks empty_callbacks;
+    memset(&empty_callbacks, 0, sizeof(empty_callbacks));
+    vterm_screen_set_callbacks(screen, &empty_callbacks, NULL);
+    
+    printf("LOG: Calling vterm_input_write with %zu bytes (callbacks disabled)\n", len);
     vterm_input_write(vterm, data, len);
     printf("LOG: vterm_input_write returned successfully\n");
+    
+    // Re-enable callbacks
+    printf("LOG: Re-enabling callbacks...\n");
+    VTermScreenCallbacks callbacks;
+    memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.damage = damage_callback;
+    vterm_screen_set_callbacks(screen, &callbacks, screen);
+    printf("LOG: Callbacks re-enabled\n");
     
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
@@ -453,10 +467,19 @@ static void output_callback(const char *s, size_t len, void *user) {
 static int damage_callback(VTermRect rect, void *user) {
     (void)user; // Suppress unused parameter warning
     
-    printf("libvterm damage callback: rows %d-%d, cols %d-%d\n", 
+    printf("LOG: damage_callback called - rows %d-%d, cols %d-%d\n", 
            rect.start_row, rect.end_row, rect.start_col, rect.end_col);
     
+    // SAFETY: Add bounds checking
+    if (rect.start_row < 0 || rect.end_row > term_rows || 
+        rect.start_col < 0 || rect.end_col > term_cols) {
+        printf("LOG: damage_callback - invalid rect bounds, ignoring\n");
+        return 1;
+    }
+    
+    printf("LOG: damage_callback - bounds check passed\n");
     damage_pending = 1;
+    printf("LOG: damage_callback returning\n");
     return 1;
 }
 
