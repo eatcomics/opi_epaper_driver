@@ -27,6 +27,7 @@ static int pty_fd = -1;
 
 // Track initialization state
 static int vterm_initialized = 0;
+static int damage_pending = 0;
 
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
@@ -123,6 +124,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     vterm_screen_flush_damage(screen);
 
     vterm_initialized = 1;
+    damage_pending = 0;
     printf("vterm initialization complete\n");
     return 0;
 }
@@ -137,6 +139,7 @@ void vterm_destroy(void) {
     vterm_buffer = NULL;
     buffer_size = 0;
     vterm_initialized = 0;
+    damage_pending = 0;
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
@@ -148,6 +151,12 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     if (!buffer) {
         printf("vterm_feed_output: NULL buffer\n");
         return;
+    }
+    
+    // Limit the amount of data we process at once
+    if (len > 256) {
+        printf("vterm_feed_output: truncating large input from %zu to 256 bytes\n", len);
+        len = 256;
     }
     
     printf("Feeding %zu bytes to vterm: ", len);
@@ -163,15 +172,21 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    // Process data byte by byte to be extra safe
-    for (size_t i = 0; i < len; i++) {
-        printf("Processing byte %zu: 0x%02x\n", i, (unsigned char)data[i]);
+    // Process data in small chunks to be safe
+    const size_t chunk_size = 16;
+    for (size_t offset = 0; offset < len; offset += chunk_size) {
+        size_t this_chunk = (offset + chunk_size > len) ? (len - offset) : chunk_size;
         
-        // Feed one byte at a time
-        vterm_input_write(vterm, &data[i], 1);
+        printf("Processing chunk at offset %zu, size %zu\n", offset, this_chunk);
         
-        // Flush damage after each byte to catch issues early
+        // Feed the chunk
+        vterm_input_write(vterm, &data[offset], this_chunk);
+        
+        // Flush damage after each chunk
         vterm_screen_flush_damage(screen);
+        
+        // Small delay to prevent overwhelming the system
+        usleep(1000); // 1ms
     }
     
     printf("Finished feeding data to vterm\n");
@@ -182,10 +197,13 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
         return;
     }
 
+    printf("Processing key: code=%u, mods=%d\n", keycode, modifiers);
+
     if (keycode >= 32 && keycode < 127) {
         // Printable ASCII character
         char ch = (char)keycode;
-        write(pty_fd, &ch, 1);
+        ssize_t written = write(pty_fd, &ch, 1);
+        printf("Wrote character '%c' to PTY: %zd bytes\n", ch, written);
     } else {
         // Special keys
         VTermKey key = convert_keycode_to_vtermkey(keycode);
@@ -228,12 +246,16 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     len = 3;
                     break;
                 default:
+                    printf("Unhandled special key: %d\n", key);
                     break;
             }
             
             if (len > 0) {
-                write(pty_fd, seq, len);
+                ssize_t written = write(pty_fd, seq, len);
+                printf("Wrote escape sequence to PTY: %zd bytes\n", written);
             }
+        } else {
+            printf("Unknown keycode: %u\n", keycode);
         }
     }
 }
@@ -268,6 +290,7 @@ void vterm_redraw(uint8_t *buffer) {
     
     printf("Rendered %d non-empty cells\n", cells_rendered);
     flush_display();
+    damage_pending = 0;
 }
 
 void flush_display(void) {
@@ -275,6 +298,10 @@ void flush_display(void) {
         printf("Flushing display to E-ink\n");
         EPD_7IN5_V2_Display(vterm_buffer);
     }
+}
+
+int vterm_has_pending_damage(void) {
+    return damage_pending;
 }
 
 void set_pixel(int x, int y, int color) {
@@ -343,9 +370,12 @@ static int damage_callback(VTermRect rect, void *user) {
         return 0;
     }
 
-    // Don't render in the damage callback - just mark as damaged
+    // Mark that we have pending damage
+    damage_pending = 1;
+    
+    // Don't render immediately in the damage callback - just mark as damaged
     // The main loop will handle the actual rendering
-    printf("Damage callback completed\n");
+    printf("Damage callback completed, marked pending\n");
     return 1;
 }
 

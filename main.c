@@ -15,7 +15,7 @@
 #include <signal.h>
 
 unsigned long last_input_time = 0;
-#define QUIET_TIMEOUT_MS 1200
+#define QUIET_TIMEOUT_MS 2000  // Increased timeout for e-ink refresh
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -151,16 +151,16 @@ int main (void) {
     printf("Waiting for shell to initialize...\n");
     usleep(500000); // 500ms - give shell more time
     
-    // Read any initial output from the shell - but be very careful
-    char buf[64]; // Much smaller buffer to be extra safe
+    // Read any initial output from the shell - now with safe processing
+    char buf[64]; // Small buffer to be safe
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0'; // Null terminate for safety
         printf("Initial shell output: %zd bytes\n", n);
         
-        // Process the output safely - but skip it for now to avoid segfault
-        printf("Skipping initial output processing to avoid segfault\n");
-        // vterm_feed_output(buf, n, image);
+        // Process the output safely
+        printf("Processing initial output...\n");
+        vterm_feed_output(buf, n, image);
         
         last_input_time = current_millis();
     } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -169,7 +169,7 @@ int main (void) {
         printf("No initial output from shell\n");
     }
     
-    // Do an initial redraw to show empty terminal
+    // Do an initial redraw to show the terminal
     printf("Performing initial redraw...\n");
     vterm_redraw(image);
     
@@ -187,15 +187,14 @@ int main (void) {
             activity = 1;
         }
 
-        // Handle PTY output - but be very careful
+        // Handle PTY output - now with safe processing
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0'; // Null terminate
             printf("PTY output: %zd bytes\n", n);
             
-            // For now, skip processing to avoid segfault
-            printf("Skipping PTY output processing to avoid segfault\n");
-            // vterm_feed_output(buf, n, image);
+            // Process the output safely
+            vterm_feed_output(buf, n, image);
             
             last_input_time = current_millis();
             activity = 1;
@@ -207,15 +206,16 @@ int main (void) {
             break;
         }
 
-        // Refresh screen after a quiet period
+        // Refresh screen after a quiet period or if there's pending damage
         unsigned long now = current_millis();
-        if (activity && (now - last_input_time > QUIET_TIMEOUT_MS)) {
-            printf("Refreshing display after quiet period...\n");
+        if ((activity && (now - last_input_time > QUIET_TIMEOUT_MS)) || 
+            vterm_has_pending_damage()) {
+            printf("Refreshing display (quiet period or pending damage)...\n");
             vterm_redraw(image);
             last_input_time = now;
         }
 
-        usleep(100000); // 100ms idle (slower to reduce CPU usage)
+        usleep(50000); // 50ms idle (faster response for terminal)
     }
     
     printf("Exiting main loop, cleaning up...\n");

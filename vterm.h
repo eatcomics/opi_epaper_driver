@@ -13,4 +13,12 @@ void vterm_process_input(uint32_t keycode, int modifiers);
 // Call this to manually trigger redraw (optional)
 void vterm_redraw(uint8_t *buffer);
 
+// Check if there's pending damage that needs a redraw
+int vterm_has_pending_damage(void);
+
+// Display functions
+void flush_display(void);
+void set_pixel(int x, int y, int color);
+void draw_rect(int x, int y, int w, int h, int color);
+
 #endif // VTERM_H
