@@ -16,8 +16,8 @@
 
 unsigned long last_input_time = 0;
 unsigned long last_refresh_time = 0;
-#define QUIET_TIMEOUT_MS 1500   // Wait 1.5 seconds after last input before refreshing
-#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between full refreshes
+#define QUIET_TIMEOUT_MS 1200   // Wait 1.2 seconds after last input before refreshing
+#define MIN_REFRESH_INTERVAL_MS 300  // Minimum time between full refreshes
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -43,7 +43,7 @@ int main (void) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    printf("Starting E-ink Terminal...\n");
+    printf("Starting E-ink Terminal with libvterm...\n");
 
     // Set up the E-Ink Display
     printf("Initializing hardware...\n");
@@ -112,10 +112,10 @@ int main (void) {
     }
     printf("PTY created successfully, fd=%d\n", pty_fd);
 
-    // Init terminal emulator
-    printf("Initializing terminal emulator...\n");
+    // Init terminal emulator with libvterm
+    printf("Initializing libvterm terminal emulator...\n");
     if (vterm_init(term_rows, term_cols, pty_fd, image) != 0) {
-        fprintf(stderr, "Failed to initialize terminal!\n");
+        fprintf(stderr, "Failed to initialize libvterm terminal!\n");
         free(image);
         keyboard_close();
         close(pty_fd);
@@ -123,7 +123,7 @@ int main (void) {
         return -1;
     }
 
-    printf("Terminal initialized successfully\n");
+    printf("libvterm terminal initialized successfully\n");
 
     // Set PTY to non-blocking
     printf("Setting PTY to non-blocking mode...\n");
@@ -137,7 +137,7 @@ int main (void) {
     }
 
     // Send initial welcome message
-    const char *msg = "Welcome to E-ink Terminal!\r\nType commands or run 'vim' or 'emacs' for editing.\r\n";
+    const char *msg = "Welcome to E-ink Terminal with libvterm!\r\nType commands like 'ls', 'vim', or 'emacs'.\r\n";
     ssize_t written = write(pty_fd, msg, strlen(msg));
     if (written < 0) {
         printf("Warning: Failed to write initial message to PTY\n");
@@ -152,10 +152,10 @@ int main (void) {
     
     // Give the shell a moment to start up
     printf("Waiting for shell to initialize...\n");
-    usleep(300000); // 300ms
+    usleep(500000); // 500ms
     
     // Read any initial output from the shell
-    char buf[1024]; // Large buffer for better performance
+    char buf[2048]; // Larger buffer for better performance
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0';
@@ -181,8 +181,8 @@ int main (void) {
         int modifiers;
         int keys_processed = 0;
         
-        // Process up to 10 keys in one batch to handle fast typing
-        while (keys_processed < 10 && read_key_event(&keycode, &modifiers)) {
+        // Process up to 5 keys in one batch to handle fast typing
+        while (keys_processed < 5 && read_key_event(&keycode, &modifiers)) {
             printf("Key: %u (mods=%d)\n", keycode, modifiers);
             vterm_process_input(keycode, modifiers);
             last_input_time = now;
@@ -194,7 +194,18 @@ int main (void) {
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0';
-            printf("PTY: %zd bytes\n", n);
+            printf("PTY: %zd bytes: ", n);
+            // Print first few characters for debugging
+            for (int i = 0; i < n && i < 20; i++) {
+                if (buf[i] >= 32 && buf[i] <= 126) {
+                    printf("%c", buf[i]);
+                } else {
+                    printf("\\x%02x", (unsigned char)buf[i]);
+                }
+            }
+            if (n > 20) printf("...");
+            printf("\n");
+            
             vterm_feed_output(buf, n, image);
             last_input_time = now;
             activity = 1;
@@ -215,7 +226,7 @@ int main (void) {
                 // User has stopped typing for a while - safe to refresh
                 should_refresh = 1;
                 printf("Quiet period detected, refreshing display...\n");
-            } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 6) {
+            } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 10) {
                 // Force refresh if too much time has passed (3 seconds)
                 should_refresh = 1;
                 printf("Force refresh due to timeout...\n");
@@ -229,9 +240,9 @@ int main (void) {
 
         // Shorter sleep for better responsiveness during typing
         if (activity) {
-            usleep(5000);  // 5ms when there's activity
+            usleep(2000);  // 2ms when there's activity
         } else {
-            usleep(20000); // 20ms when idle
+            usleep(10000); // 10ms when idle
         }
     }
     

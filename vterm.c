@@ -2,6 +2,7 @@
 #include "EPD_7in5_V2.h"
 #include "font8x16.h"
 #include "keymap.h"
+#include <vterm.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
@@ -19,50 +20,16 @@
 static uint8_t *vterm_buffer = NULL;
 static size_t buffer_size = 0;
 
-// Terminal state
+// Vterm variables
+static VTerm *vterm = NULL;
+static VTermScreen *screen = NULL;
 static int term_rows, term_cols;
 static int pty_fd = -1;
-
-// Simple terminal emulator state
-static char **screen_buffer = NULL;  // 2D array of characters
-static uint8_t **attr_buffer = NULL; // 2D array of attributes (colors, etc.)
-static int cursor_row = 0;
-static int cursor_col = 0;
 static int damage_pending = 0;
-static int cursor_visible = 1;
-
-// Scrollback buffer
-#define SCROLLBACK_LINES 100
-static char **scrollback_buffer = NULL;
-static int scrollback_pos = 0;
-static int scrollback_count = 0;
-
-// ANSI escape sequence parser state
-typedef enum {
-    PARSE_NORMAL,
-    PARSE_ESCAPE,
-    PARSE_CSI,
-    PARSE_CSI_PARAM
-} parse_state_t;
-
-static parse_state_t parse_state = PARSE_NORMAL;
-static char escape_buffer[64];
-static int escape_pos = 0;
-
-// Current text attributes
-static uint8_t current_attr = 0;
-#define ATTR_BOLD     0x01
-#define ATTR_REVERSE  0x02
-#define ATTR_UNDERLINE 0x04
 
 // Forward declarations
-static void clear_screen_buffer(void);
-static void scroll_up(void);
-static void process_escape_sequence(void);
-static void move_cursor(int row, int col);
-static void put_char_at(int row, int col, char ch);
-static void render_screen_buffer(void);
-static void save_line_to_scrollback(int row);
+static void render_cell(int col, int row, const VTermScreenCell *cell);
+static int damage_callback(VTermRect rect, void *user);
 
 // Complete key mapping table for Linux input event codes to ASCII
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
@@ -133,8 +100,33 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
     }
 }
 
+// Utility function for libvterm compatibility
+int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
+    if (codepoint < 0x80) {
+        buffer[0] = codepoint;
+        return 1;
+    } else if (codepoint < 0x800) {
+        buffer[0] = 0xC0 | (codepoint >> 6);
+        buffer[1] = 0x80 | (codepoint & 0x3F);
+        return 2;
+    } else if (codepoint < 0x10000) {
+        buffer[0] = 0xE0 | (codepoint >> 12);
+        buffer[1] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buffer[2] = 0x80 | (codepoint & 0x3F);
+        return 3;
+    } else if (codepoint < 0x110000) {
+        buffer[0] = 0xF0 | (codepoint >> 18);
+        buffer[1] = 0x80 | ((codepoint >> 12) & 0x3F);
+        buffer[2] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buffer[3] = 0x80 | (codepoint & 0x3F);
+        return 4;
+    } else {
+        return 0;
+    }
+}
+
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
-    printf("Initializing enhanced terminal emulator...\n");
+    printf("Initializing libvterm terminal emulator...\n");
     
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
@@ -147,7 +139,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     }
 
     // Clean up any existing state
-    if (screen_buffer) {
+    if (vterm) {
         vterm_destroy();
     }
 
@@ -160,84 +152,56 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     printf("Terminal dimensions: %dx%d\n", cols, rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
-    // Allocate screen buffer
-    screen_buffer = malloc(term_rows * sizeof(char*));
-    attr_buffer = malloc(term_rows * sizeof(uint8_t*));
-    if (!screen_buffer || !attr_buffer) {
-        printf("Error: Failed to allocate screen buffers\n");
+    // Create libvterm instance
+    vterm = vterm_new(rows, cols);
+    if (!vterm) {
+        printf("Error: Failed to create libvterm instance\n");
         return -1;
     }
 
-    for (int i = 0; i < term_rows; i++) {
-        screen_buffer[i] = malloc(term_cols + 1);
-        attr_buffer[i] = malloc(term_cols);
-        if (!screen_buffer[i] || !attr_buffer[i]) {
-            printf("Error: Failed to allocate screen buffer row %d\n", i);
-            // Clean up
-            for (int j = 0; j < i; j++) {
-                free(screen_buffer[j]);
-                free(attr_buffer[j]);
-            }
-            free(screen_buffer);
-            free(attr_buffer);
-            screen_buffer = NULL;
-            attr_buffer = NULL;
-            return -1;
-        }
-        memset(screen_buffer[i], ' ', term_cols);
-        screen_buffer[i][term_cols] = '\0';
-        memset(attr_buffer[i], 0, term_cols);
+    // Configure libvterm
+    vterm_set_utf8(vterm, 1);
+    
+    // Get screen interface
+    screen = vterm_obtain_screen(vterm);
+    if (!screen) {
+        printf("Error: Failed to obtain libvterm screen\n");
+        vterm_free(vterm);
+        vterm = NULL;
+        return -1;
     }
 
-    // Allocate scrollback buffer
-    scrollback_buffer = malloc(SCROLLBACK_LINES * sizeof(char*));
-    if (scrollback_buffer) {
-        for (int i = 0; i < SCROLLBACK_LINES; i++) {
-            scrollback_buffer[i] = malloc(term_cols + 1);
-            if (scrollback_buffer[i]) {
-                memset(scrollback_buffer[i], ' ', term_cols);
-                scrollback_buffer[i][term_cols] = '\0';
-            }
-        }
-        scrollback_pos = 0;
-        scrollback_count = 0;
-    }
+    // Set up callbacks
+    VTermScreenCallbacks callbacks = {
+        .damage = damage_callback,
+        .moverect = NULL,
+        .movecursor = NULL,
+        .settermprop = NULL,
+        .bell = NULL,
+        .resize = NULL,
+        .sb_pushline = NULL,
+        .sb_popline = NULL,
+    };
+    vterm_screen_set_callbacks(screen, &callbacks, screen);
+
+    // Reset and initialize
+    vterm_screen_reset(screen, 1);
 
     // Clear the framebuffer
     memset(buffer, 0xFF, buffer_size);
 
-    // Initialize terminal state
-    cursor_row = 0;
-    cursor_col = 0;
-    parse_state = PARSE_NORMAL;
-    escape_pos = 0;
     damage_pending = 0;
-    current_attr = 0;
-    cursor_visible = 1;
 
-    printf("Enhanced terminal initialized successfully\n");
+    printf("libvterm terminal initialized successfully\n");
     return 0;
 }
 
 void vterm_destroy(void) {
-    if (screen_buffer) {
-        printf("Destroying terminal\n");
-        for (int i = 0; i < term_rows; i++) {
-            if (screen_buffer[i]) free(screen_buffer[i]);
-            if (attr_buffer[i]) free(attr_buffer[i]);
-        }
-        free(screen_buffer);
-        free(attr_buffer);
-        screen_buffer = NULL;
-        attr_buffer = NULL;
-    }
-    
-    if (scrollback_buffer) {
-        for (int i = 0; i < SCROLLBACK_LINES; i++) {
-            if (scrollback_buffer[i]) free(scrollback_buffer[i]);
-        }
-        free(scrollback_buffer);
-        scrollback_buffer = NULL;
+    if (vterm) {
+        printf("Destroying libvterm terminal\n");
+        vterm_free(vterm);
+        vterm = NULL;
+        screen = NULL;
     }
     
     vterm_buffer = NULL;
@@ -246,107 +210,20 @@ void vterm_destroy(void) {
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
-    if (!data || len == 0 || !buffer || !screen_buffer) {
+    if (!data || len == 0 || !buffer || !vterm) {
         return;
     }
     
     vterm_buffer = buffer;
     
-    for (size_t i = 0; i < len; i++) {
-        char ch = data[i];
-        
-        switch (parse_state) {
-            case PARSE_NORMAL:
-                if (ch == '\x1b') {  // ESC
-                    parse_state = PARSE_ESCAPE;
-                    escape_pos = 0;
-                } else if (ch == '\r') {
-                    cursor_col = 0;
-                } else if (ch == '\n') {
-                    cursor_row++;
-                    if (cursor_row >= term_rows) {
-                        scroll_up();
-                        cursor_row = term_rows - 1;
-                    }
-                } else if (ch == '\b') {
-                    if (cursor_col > 0) {
-                        cursor_col--;
-                    }
-                } else if (ch == '\t') {
-                    // Tab to next 8-column boundary
-                    int next_tab = ((cursor_col + 8) / 8) * 8;
-                    if (next_tab >= term_cols) {
-                        cursor_col = 0;
-                        cursor_row++;
-                        if (cursor_row >= term_rows) {
-                            scroll_up();
-                            cursor_row = term_rows - 1;
-                        }
-                    } else {
-                        cursor_col = next_tab;
-                    }
-                } else if (ch == '\a') {
-                    // Bell - ignore for now
-                } else if (isprint(ch) || ch == ' ') {
-                    // Handle line wrapping
-                    if (cursor_col >= term_cols) {
-                        cursor_col = 0;
-                        cursor_row++;
-                        if (cursor_row >= term_rows) {
-                            scroll_up();
-                            cursor_row = term_rows - 1;
-                        }
-                    }
-                    
-                    put_char_at(cursor_row, cursor_col, ch);
-                    cursor_col++;
-                }
-                break;
-                
-            case PARSE_ESCAPE:
-                if (ch == '[') {
-                    parse_state = PARSE_CSI;
-                    escape_pos = 0;
-                } else if (ch == 'c') {
-                    // Reset terminal
-                    clear_screen_buffer();
-                    current_attr = 0;
-                    parse_state = PARSE_NORMAL;
-                } else {
-                    // Other escape sequences - ignore
-                    parse_state = PARSE_NORMAL;
-                }
-                break;
-                
-            case PARSE_CSI:
-                if (escape_pos < sizeof(escape_buffer) - 1) {
-                    escape_buffer[escape_pos++] = ch;
-                }
-                
-                if (isalpha(ch)) {
-                    // End of CSI sequence
-                    escape_buffer[escape_pos] = '\0';
-                    process_escape_sequence();
-                    parse_state = PARSE_NORMAL;
-                    escape_pos = 0;
-                } else if (escape_pos >= sizeof(escape_buffer) - 1) {
-                    // Buffer overflow - abort sequence
-                    parse_state = PARSE_NORMAL;
-                    escape_pos = 0;
-                }
-                break;
-                
-            default:
-                parse_state = PARSE_NORMAL;
-                break;
-        }
-    }
+    // Feed data to libvterm
+    vterm_input_write(vterm, data, len);
     
     damage_pending = 1;
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
-    if (pty_fd < 0) {
+    if (pty_fd < 0 || !vterm) {
         return;
     }
 
@@ -357,234 +234,89 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     int shift_pressed = (modifiers & 0x01) != 0;  // Shift
     int alt_pressed = (modifiers & 0x08) != 0;    // Alt
     
-    if (ctrl_pressed) {
-        // Handle Ctrl+letter combinations
-        if ((keycode >= KEY_A && keycode <= KEY_Z) || 
-            (keycode >= KEY_Q && keycode <= KEY_P)) {
-            char ctrl_char;
-            
-            // Map keycode to letter
-            switch (keycode) {
-                case KEY_Q: ctrl_char = 17; break;  // Ctrl+Q
-                case KEY_W: ctrl_char = 23; break;  // Ctrl+W
-                case KEY_E: ctrl_char = 5; break;   // Ctrl+E
-                case KEY_R: ctrl_char = 18; break;  // Ctrl+R
-                case KEY_T: ctrl_char = 20; break;  // Ctrl+T
-                case KEY_Y: ctrl_char = 25; break;  // Ctrl+Y
-                case KEY_U: ctrl_char = 21; break;  // Ctrl+U
-                case KEY_I: ctrl_char = 9; break;   // Ctrl+I (Tab)
-                case KEY_O: ctrl_char = 15; break;  // Ctrl+O
-                case KEY_P: ctrl_char = 16; break;  // Ctrl+P
-                case KEY_A: ctrl_char = 1; break;   // Ctrl+A
-                case KEY_S: ctrl_char = 19; break;  // Ctrl+S
-                case KEY_D: ctrl_char = 4; break;   // Ctrl+D
-                case KEY_F: ctrl_char = 6; break;   // Ctrl+F
-                case KEY_G: ctrl_char = 7; break;   // Ctrl+G
-                case KEY_H: ctrl_char = 8; break;   // Ctrl+H (Backspace)
-                case KEY_J: ctrl_char = 10; break;  // Ctrl+J (Line Feed)
-                case KEY_K: ctrl_char = 11; break;  // Ctrl+K
-                case KEY_L: ctrl_char = 12; break;  // Ctrl+L
-                case KEY_Z: ctrl_char = 26; break;  // Ctrl+Z
-                case KEY_X: ctrl_char = 24; break;  // Ctrl+X
-                case KEY_C: ctrl_char = 3; break;   // Ctrl+C
-                case KEY_V: ctrl_char = 22; break;  // Ctrl+V
-                case KEY_B: ctrl_char = 2; break;   // Ctrl+B
-                case KEY_N: ctrl_char = 14; break;  // Ctrl+N
-                case KEY_M: ctrl_char = 13; break;  // Ctrl+M (Enter)
-                default: return;
-            }
-            
-            printf("Sending Ctrl+%c (0x%02x)\n", 'A' + ctrl_char - 1, ctrl_char);
-            write(pty_fd, &ctrl_char, 1);
-            return;
-        }
+    // Convert modifiers to VTerm format
+    VTermModifier vterm_mods = VTERM_MOD_NONE;
+    if (shift_pressed) vterm_mods |= VTERM_MOD_SHIFT;
+    if (ctrl_pressed) vterm_mods |= VTERM_MOD_CTRL;
+    if (alt_pressed) vterm_mods |= VTERM_MOD_ALT;
+
+    // Handle special keys first
+    VTermKey vterm_key = convert_keycode_to_vtermkey(keycode);
+    if (vterm_key != VTERM_KEY_NONE) {
+        printf("Sending special key via libvterm\n");
+        vterm_keyboard_key(vterm, vterm_key, vterm_mods);
         
-        // Handle other Ctrl combinations
-        switch (keycode) {
-            case KEY_SPACE:
-                {
-                    char null_char = 0;
-                    printf("Sending Ctrl+Space (NUL)\n");
-                    write(pty_fd, &null_char, 1);
-                    return;
-                }
-            case KEY_LEFTBRACE:  // Ctrl+[
-                {
-                    char esc_char = 27;
-                    printf("Sending Ctrl+[ (ESC)\n");
-                    write(pty_fd, &esc_char, 1);
-                    return;
-                }
-            case KEY_BACKSLASH: // Ctrl+\ (backslash)
-                {
-                    char fs_char = 28;
-                    printf("Sending Ctrl+\\ (FS)\n");
-                    write(pty_fd, &fs_char, 1);
-                    return;
-                }
-            case KEY_RIGHTBRACE: // Ctrl+]
-                {
-                    char gs_char = 29;
-                    printf("Sending Ctrl+] (GS)\n");
-                    write(pty_fd, &gs_char, 1);
-                    return;
-                }
-            case KEY_6: // Ctrl+^ (Ctrl+Shift+6)
-                if (shift_pressed) {
-                    char rs_char = 30;
-                    printf("Sending Ctrl+^ (RS)\n");
-                    write(pty_fd, &rs_char, 1);
-                    return;
-                }
-                break;
-            case KEY_MINUS: // Ctrl+_ (Ctrl+Shift+-)
-                if (shift_pressed) {
-                    char us_char = 31;
-                    printf("Sending Ctrl+_ (US)\n");
-                    write(pty_fd, &us_char, 1);
-                    return;
-                }
-                break;
+        // Get the output from libvterm and send to PTY
+        char output[64];
+        size_t output_len = vterm_output_read(vterm, output, sizeof(output));
+        if (output_len > 0) {
+            printf("libvterm generated %zu bytes for special key\n", output_len);
+            write(pty_fd, output, output_len);
         }
-    }
-
-    // Handle Alt combinations (send ESC prefix)
-    if (alt_pressed) {
-        char ascii_char = keycode_to_ascii(keycode, shift_pressed);
-        if (ascii_char != 0) {
-            printf("Sending Alt+%c (ESC + %c)\n", ascii_char, ascii_char);
-            write(pty_fd, "\x1b", 1);  // ESC prefix
-            write(pty_fd, &ascii_char, 1);
-            return;
-        }
-    }
-
-    // Handle special keys (non-printable)
-    switch (keycode) {
-        case KEY_ENTER:
-            printf("Sending Enter\n");
-            write(pty_fd, "\r", 1);
-            return;
-        case KEY_BACKSPACE:
-            printf("Sending Backspace\n");
-            write(pty_fd, "\x7f", 1);  // DEL character
-            return;
-        case KEY_TAB:
-            printf("Sending Tab\n");
-            write(pty_fd, "\t", 1);
-            return;
-        case KEY_ESC:
-            printf("Sending Escape\n");
-            write(pty_fd, "\x1b", 1);
-            return;
-        case KEY_UP:
-            printf("Sending Up Arrow\n");
-            write(pty_fd, "\x1b[A", 3);
-            return;
-        case KEY_DOWN:
-            printf("Sending Down Arrow\n");
-            write(pty_fd, "\x1b[B", 3);
-            return;
-        case KEY_RIGHT:
-            printf("Sending Right Arrow\n");
-            write(pty_fd, "\x1b[C", 3);
-            return;
-        case KEY_LEFT:
-            printf("Sending Left Arrow\n");
-            write(pty_fd, "\x1b[D", 3);
-            return;
-        case KEY_HOME:
-            printf("Sending Home\n");
-            write(pty_fd, "\x1b[H", 3);
-            return;
-        case KEY_END:
-            printf("Sending End\n");
-            write(pty_fd, "\x1b[F", 3);
-            return;
-        case KEY_PAGEUP:
-            printf("Sending Page Up\n");
-            write(pty_fd, "\x1b[5~", 4);
-            return;
-        case KEY_PAGEDOWN:
-            printf("Sending Page Down\n");
-            write(pty_fd, "\x1b[6~", 4);
-            return;
-        case KEY_DELETE:
-            printf("Sending Delete\n");
-            write(pty_fd, "\x1b[3~", 4);
-            return;
-        case KEY_INSERT:
-            printf("Sending Insert\n");
-            write(pty_fd, "\x1b[2~", 4);
-            return;
-        // Function keys
-        case KEY_F1:
-            printf("Sending F1\n");
-            write(pty_fd, "\x1bOP", 3);
-            return;
-        case KEY_F2:
-            printf("Sending F2\n");
-            write(pty_fd, "\x1bOQ", 3);
-            return;
-        case KEY_F3:
-            printf("Sending F3\n");
-            write(pty_fd, "\x1bOR", 3);
-            return;
-        case KEY_F4:
-            printf("Sending F4\n");
-            write(pty_fd, "\x1bOS", 3);
-            return;
-        case KEY_F5:
-            printf("Sending F5\n");
-            write(pty_fd, "\x1b[15~", 5);
-            return;
-        case KEY_F6:
-            printf("Sending F6\n");
-            write(pty_fd, "\x1b[17~", 5);
-            return;
-        case KEY_F7:
-            printf("Sending F7\n");
-            write(pty_fd, "\x1b[18~", 5);
-            return;
-        case KEY_F8:
-            printf("Sending F8\n");
-            write(pty_fd, "\x1b[19~", 5);
-            return;
-        case KEY_F9:
-            printf("Sending F9\n");
-            write(pty_fd, "\x1b[20~", 5);
-            return;
-        case KEY_F10:
-            printf("Sending F10\n");
-            write(pty_fd, "\x1b[21~", 5);
-            return;
-        case KEY_F11:
-            printf("Sending F11\n");
-            write(pty_fd, "\x1b[23~", 5);
-            return;
-        case KEY_F12:
-            printf("Sending F12\n");
-            write(pty_fd, "\x1b[24~", 5);
-            return;
+        return;
     }
 
     // Handle printable characters
     char ascii_char = keycode_to_ascii(keycode, shift_pressed);
     if (ascii_char != 0) {
-        printf("Sending ASCII: '%c' (0x%02x)\n", ascii_char, ascii_char);
-        write(pty_fd, &ascii_char, 1);
+        if (ctrl_pressed && ascii_char >= 'a' && ascii_char <= 'z') {
+            // Convert to control character
+            char ctrl_char = ascii_char - 'a' + 1;
+            printf("Sending Ctrl+%c (0x%02x)\n", ascii_char, ctrl_char);
+            write(pty_fd, &ctrl_char, 1);
+        } else if (ctrl_pressed && ascii_char >= 'A' && ascii_char <= 'Z') {
+            // Convert to control character
+            char ctrl_char = ascii_char - 'A' + 1;
+            printf("Sending Ctrl+%c (0x%02x)\n", ascii_char, ctrl_char);
+            write(pty_fd, &ctrl_char, 1);
+        } else {
+            // Send via libvterm for proper handling
+            printf("Sending ASCII via libvterm: '%c' (0x%02x)\n", ascii_char, ascii_char);
+            vterm_keyboard_unichar(vterm, ascii_char, vterm_mods);
+            
+            // Get the output from libvterm and send to PTY
+            char output[64];
+            size_t output_len = vterm_output_read(vterm, output, sizeof(output));
+            if (output_len > 0) {
+                printf("libvterm generated %zu bytes for ASCII char\n", output_len);
+                write(pty_fd, output, output_len);
+            } else {
+                // Fallback: send directly
+                printf("Fallback: sending ASCII directly\n");
+                write(pty_fd, &ascii_char, 1);
+            }
+        }
     } else {
         printf("Unhandled keycode: %u\n", keycode);
     }
 }
 
 void vterm_redraw(uint8_t *buffer) {
-    if (!buffer || !screen_buffer) {
+    if (!buffer || !screen) {
         return;
     }
     
     vterm_buffer = buffer;
-    render_screen_buffer();
+    
+    // Clear the framebuffer
+    memset(buffer, 0xFF, buffer_size);
+    
+    VTermScreenCell cell;
+    int rendered_chars = 0;
+    
+    for (int row = 0; row < term_rows; row++) {
+        for (int col = 0; col < term_cols; col++) {
+            VTermPos pos = {.row = row, .col = col};
+            if (vterm_screen_get_cell(screen, pos, &cell)) {
+                if (cell.chars[0] != 0) {
+                    render_cell(col, row, &cell);
+                    rendered_chars++;
+                }
+            }
+        }
+    }
+    
+    printf("Rendered %d non-empty cells\n", rendered_chars);
     flush_display();
     damage_pending = 0;
 }
@@ -647,268 +379,46 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 
 // --- Internal Functions ---
 
-static void clear_screen_buffer(void) {
-    if (!screen_buffer) return;
+static int damage_callback(VTermRect rect, void *user) {
+    (void)user; // Suppress unused parameter warning
     
-    for (int i = 0; i < term_rows; i++) {
-        memset(screen_buffer[i], ' ', term_cols);
-        screen_buffer[i][term_cols] = '\0';
-        memset(attr_buffer[i], 0, term_cols);
-    }
-    cursor_row = 0;
-    cursor_col = 0;
+    printf("libvterm damage callback: rows %d-%d, cols %d-%d\n", 
+           rect.start_row, rect.end_row, rect.start_col, rect.end_col);
+    
+    damage_pending = 1;
+    return 1;
 }
 
-static void save_line_to_scrollback(int row) {
-    if (!scrollback_buffer || row < 0 || row >= term_rows) return;
-    
-    // Copy line to scrollback
-    if (scrollback_buffer[scrollback_pos]) {
-        strcpy(scrollback_buffer[scrollback_pos], screen_buffer[row]);
-    }
-    
-    scrollback_pos = (scrollback_pos + 1) % SCROLLBACK_LINES;
-    if (scrollback_count < SCROLLBACK_LINES) {
-        scrollback_count++;
-    }
-}
+static void render_cell(int col, int row, const VTermScreenCell *cell) {
+    int x = col * CELL_WIDTH;
+    int y = row * CELL_HEIGHT;
 
-static void scroll_up(void) {
-    if (!screen_buffer) return;
+    // Determine colors
+    int fg_color = COLOR_BLACK;
+    int bg_color = COLOR_WHITE;
     
-    // Save the top line to scrollback
-    save_line_to_scrollback(0);
-    
-    // Move all lines up by one
-    char *first_line = screen_buffer[0];
-    uint8_t *first_attr = attr_buffer[0];
-    
-    for (int i = 0; i < term_rows - 1; i++) {
-        screen_buffer[i] = screen_buffer[i + 1];
-        attr_buffer[i] = attr_buffer[i + 1];
+    // Handle reverse video
+    if (cell->attrs.reverse) {
+        fg_color = COLOR_WHITE;
+        bg_color = COLOR_BLACK;
     }
-    
-    // Clear the last line
-    screen_buffer[term_rows - 1] = first_line;
-    attr_buffer[term_rows - 1] = first_attr;
-    memset(screen_buffer[term_rows - 1], ' ', term_cols);
-    screen_buffer[term_rows - 1][term_cols] = '\0';
-    memset(attr_buffer[term_rows - 1], 0, term_cols);
-}
 
-static void process_escape_sequence(void) {
-    if (escape_pos == 0) return;
-    
-    char cmd = escape_buffer[escape_pos - 1];
-    
-    switch (cmd) {
-        case 'H': // Cursor position
-        case 'f': {
-            int row = 1, col = 1;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d;%d", &row, &col);
-            }
-            move_cursor(row - 1, col - 1);
-            break;
-        }
-        case 'A': { // Cursor up
-            int n = 1;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &n);
-            }
-            cursor_row = (cursor_row - n < 0) ? 0 : cursor_row - n;
-            break;
-        }
-        case 'B': { // Cursor down
-            int n = 1;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &n);
-            }
-            cursor_row = (cursor_row + n >= term_rows) ? term_rows - 1 : cursor_row + n;
-            break;
-        }
-        case 'C': { // Cursor right
-            int n = 1;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &n);
-            }
-            cursor_col = (cursor_col + n >= term_cols) ? term_cols - 1 : cursor_col + n;
-            break;
-        }
-        case 'D': { // Cursor left
-            int n = 1;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &n);
-            }
-            cursor_col = (cursor_col - n < 0) ? 0 : cursor_col - n;
-            break;
-        }
-        case 'J': { // Clear screen
-            int mode = 0;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &mode);
-            }
-            if (mode == 2) {
-                clear_screen_buffer();
-            }
-            break;
-        }
-        case 'K': { // Clear line
-            int mode = 0;
-            if (escape_pos > 1) {
-                sscanf(escape_buffer, "%d", &mode);
-            }
-            if (screen_buffer && cursor_row >= 0 && cursor_row < term_rows) {
-                if (mode == 0) {
-                    // Clear from cursor to end of line
-                    memset(&screen_buffer[cursor_row][cursor_col], ' ', 
-                           term_cols - cursor_col);
-                    memset(&attr_buffer[cursor_row][cursor_col], 0,
-                           term_cols - cursor_col);
-                } else if (mode == 1) {
-                    // Clear from start of line to cursor
-                    memset(screen_buffer[cursor_row], ' ', cursor_col + 1);
-                    memset(attr_buffer[cursor_row], 0, cursor_col + 1);
-                } else if (mode == 2) {
-                    // Clear entire line
-                    memset(screen_buffer[cursor_row], ' ', term_cols);
-                    memset(attr_buffer[cursor_row], 0, term_cols);
-                }
-            }
-            break;
-        }
-        case 'm': { // Set graphics mode
-            // Parse multiple parameters
-            char *param = escape_buffer;
-            char *end;
-            
-            do {
-                int code = strtol(param, &end, 10);
-                
-                switch (code) {
-                    case 0:  // Reset
-                        current_attr = 0;
-                        break;
-                    case 1:  // Bold
-                        current_attr |= ATTR_BOLD;
-                        break;
-                    case 4:  // Underline
-                        current_attr |= ATTR_UNDERLINE;
-                        break;
-                    case 7:  // Reverse
-                        current_attr |= ATTR_REVERSE;
-                        break;
-                    case 22: // Normal intensity
-                        current_attr &= ~ATTR_BOLD;
-                        break;
-                    case 24: // No underline
-                        current_attr &= ~ATTR_UNDERLINE;
-                        break;
-                    case 27: // No reverse
-                        current_attr &= ~ATTR_REVERSE;
-                        break;
-                    // Color codes 30-37, 40-47 - ignore for now
-                }
-                
-                param = end;
-                if (*param == ';') param++;
-            } while (*param && param < escape_buffer + escape_pos);
-            break;
-        }
-        case 'l':
-        case 'h': { // Set/reset mode
-            if (strstr(escape_buffer, "?25") == escape_buffer) {
-                // Cursor visibility
-                cursor_visible = (cmd == 'h');
-            }
-            break;
-        }
+    // Draw background
+    if (bg_color == COLOR_BLACK) {
+        draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_BLACK);
     }
-}
 
-static void move_cursor(int row, int col) {
-    cursor_row = (row < 0) ? 0 : (row >= term_rows) ? term_rows - 1 : row;
-    cursor_col = (col < 0) ? 0 : (col >= term_cols) ? term_cols - 1 : col;
-}
-
-static void put_char_at(int row, int col, char ch) {
-    if (!screen_buffer || row < 0 || row >= term_rows || col < 0 || col >= term_cols) {
-        return;
-    }
-    
-    screen_buffer[row][col] = ch;
-    attr_buffer[row][col] = current_attr;
-}
-
-static void render_screen_buffer(void) {
-    if (!screen_buffer || !vterm_buffer) {
-        return;
-    }
-    
-    // Clear the framebuffer
-    memset(vterm_buffer, 0xFF, buffer_size);
-    
-    int rendered_chars = 0;
-    
-    // Render each character
-    for (int row = 0; row < term_rows; row++) {
-        for (int col = 0; col < term_cols; col++) {
-            char ch = screen_buffer[row][col];
-            uint8_t attr = attr_buffer[row][col];
-            
-            if (ch != ' ' || attr != 0) {
-                int x = col * CELL_WIDTH;
-                int y = row * CELL_HEIGHT;
-                
-                // Determine colors based on attributes
-                int fg_color = COLOR_BLACK;
-                int bg_color = COLOR_WHITE;
-                
-                if (attr & ATTR_REVERSE) {
-                    fg_color = COLOR_WHITE;
-                    bg_color = COLOR_BLACK;
-                }
-                
-                // Draw background if needed
-                if (bg_color == COLOR_BLACK) {
-                    draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_BLACK);
-                }
-                
-                // Draw character
-                if (ch != ' ') {
-                    draw_char_fallback(x, y, ch, fg_color);
-                    rendered_chars++;
-                }
-                
-                // Draw underline if needed
-                if (attr & ATTR_UNDERLINE) {
-                    draw_rect(x, y + CELL_HEIGHT - 2, CELL_WIDTH, 1, fg_color);
-                }
-            }
+    // Draw character if present
+    if (cell->chars[0] != 0) {
+        char ch[5] = {0};
+        int len = vterm_unicode_to_utf8(cell->chars[0], ch);
+        if (len > 0 && ch[0] >= 0x20 && ch[0] <= 0x7F) {
+            draw_char_fallback(x, y, ch[0], fg_color);
         }
     }
     
-    printf("Rendered %d non-empty cells\n", rendered_chars);
-    
-    // Draw cursor if visible
-    if (cursor_visible && cursor_row >= 0 && cursor_row < term_rows && 
-        cursor_col >= 0 && cursor_col < term_cols) {
-        int x = cursor_col * CELL_WIDTH;
-        int y = cursor_row * CELL_HEIGHT;
-        
-        // Draw cursor as a block that inverts the cell
-        for (int dy = 0; dy < CELL_HEIGHT; dy++) {
-            for (int dx = 0; dx < CELL_WIDTH; dx++) {
-                int px = x + dx;
-                int py = y + dy;
-                if (px >= 0 && px < EPD_7IN5_V2_WIDTH && py >= 0 && py < EPD_7IN5_V2_HEIGHT) {
-                    int byte_index = (py * EPD_7IN5_V2_WIDTH + px) / 8;
-                    int bit_index = 7 - (px % 8);
-                    if (byte_index >= 0 && byte_index < buffer_size) {
-                        vterm_buffer[byte_index] ^= (1 << bit_index);
-                    }
-                }
-            }
-        }
+    // Draw underline if needed
+    if (cell->attrs.underline) {
+        draw_rect(x, y + CELL_HEIGHT - 2, CELL_WIDTH, 1, fg_color);
     }
 }
