@@ -259,11 +259,11 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     printf("LOG: About to call vterm_input_write...\n");
     fflush(stdout);  // Force output before potential crash
     
-    // CRITICAL: Add a test to see if vterm is valid
+    // CRITICAL: Add a test to see if vterm is valid - FIXED API CALL
     printf("LOG: Testing vterm validity...\n");
-    VTermSize size;
-    vterm_get_size(vterm, &size);
-    printf("LOG: vterm size check passed: %dx%d\n", size.cols, size.rows);
+    int test_rows, test_cols;
+    vterm_get_size(vterm, &test_rows, &test_cols);
+    printf("LOG: vterm size check passed: %dx%d\n", test_cols, test_rows);
     
     printf("LOG: Calling vterm_input_write with %zu bytes\n", len);
     vterm_input_write(vterm, data, len);
