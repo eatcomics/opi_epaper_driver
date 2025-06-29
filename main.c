@@ -15,7 +15,9 @@
 #include <signal.h>
 
 unsigned long last_input_time = 0;
-#define QUIET_TIMEOUT_MS 2000  // Increased timeout for e-ink refresh
+unsigned long last_refresh_time = 0;
+#define QUIET_TIMEOUT_MS 1500  // Reduced for better responsiveness
+#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between full refreshes
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -110,10 +112,10 @@ int main (void) {
     }
     printf("PTY created successfully, fd=%d\n", pty_fd);
 
-    // Init libvterm here
+    // Init terminal emulator
     printf("Initializing terminal emulator...\n");
     if (vterm_init(term_rows, term_cols, pty_fd, image) != 0) {
-        fprintf(stderr, "Failed to initialize vterm!\n");
+        fprintf(stderr, "Failed to initialize terminal!\n");
         free(image);
         keyboard_close();
         close(pty_fd);
@@ -134,8 +136,8 @@ int main (void) {
         }
     }
 
-    // Send initial test message
-    const char *msg = "Welcome to E-ink Terminal!\r\n";
+    // Send initial welcome message
+    const char *msg = "Welcome to E-ink Terminal!\r\nType 'help' for basic commands.\r\n";
     ssize_t written = write(pty_fd, msg, strlen(msg));
     if (written < 0) {
         printf("Warning: Failed to write initial message to PTY\n");
@@ -146,57 +148,51 @@ int main (void) {
     printf("Entering main loop...\n");
     int run = 1;
     last_input_time = current_millis();
+    last_refresh_time = last_input_time;
     
-    // Give the shell a moment to start up and send initial output
+    // Give the shell a moment to start up
     printf("Waiting for shell to initialize...\n");
-    usleep(500000); // 500ms - give shell more time
+    usleep(300000); // 300ms
     
-    // Read any initial output from the shell - now with safe processing
-    char buf[64]; // Small buffer to be safe
+    // Read any initial output from the shell
+    char buf[256]; // Larger buffer for better performance
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
-        buf[n] = '\0'; // Null terminate for safety
+        buf[n] = '\0';
         printf("Initial shell output: %zd bytes\n", n);
-        
-        // Process the output safely
-        printf("Processing initial output...\n");
         vterm_feed_output(buf, n, image);
-        
         last_input_time = current_millis();
     } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         printf("Error reading initial output: %s\n", strerror(errno));
-    } else {
-        printf("No initial output from shell\n");
     }
     
-    // Do an initial redraw to show the terminal
+    // Do an initial redraw
     printf("Performing initial redraw...\n");
     vterm_redraw(image);
+    last_refresh_time = current_millis();
     
-    // Da main loop
+    // Main event loop
     while (run && !cleanup_requested) {
         int activity = 0;
+        unsigned long now = current_millis();
         
         // Handle keyboard input
         uint32_t keycode;
         int modifiers;
         if (read_key_event(&keycode, &modifiers)) {
-            printf("Key event: code=%u, mods=%d\n", keycode, modifiers);
+            printf("Key: %u (mods=%d)\n", keycode, modifiers);
             vterm_process_input(keycode, modifiers);
-            last_input_time = current_millis();
+            last_input_time = now;
             activity = 1;
         }
 
-        // Handle PTY output - now with safe processing
+        // Handle PTY output
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
-            buf[n] = '\0'; // Null terminate
-            printf("PTY output: %zd bytes\n", n);
-            
-            // Process the output safely
+            buf[n] = '\0';
+            printf("PTY: %zd bytes\n", n);
             vterm_feed_output(buf, n, image);
-            
-            last_input_time = current_millis();
+            last_input_time = now;
             activity = 1;
         } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             fprintf(stderr, "PTY read error: %s\n", strerror(errno));
@@ -206,16 +202,28 @@ int main (void) {
             break;
         }
 
-        // Refresh screen after a quiet period or if there's pending damage
-        unsigned long now = current_millis();
-        if ((activity && (now - last_input_time > QUIET_TIMEOUT_MS)) || 
-            vterm_has_pending_damage()) {
-            printf("Refreshing display (quiet period or pending damage)...\n");
+        // Smart refresh logic
+        int should_refresh = 0;
+        
+        if (vterm_has_pending_damage()) {
+            // There's pending damage
+            if (now - last_input_time > QUIET_TIMEOUT_MS) {
+                // Quiet period - safe to refresh
+                should_refresh = 1;
+            } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 3) {
+                // Force refresh if too much time has passed
+                should_refresh = 1;
+            }
+        }
+        
+        if (should_refresh) {
+            printf("Refreshing display...\n");
             vterm_redraw(image);
-            last_input_time = now;
+            last_refresh_time = now;
         }
 
-        usleep(50000); // 50ms idle (faster response for terminal)
+        // Shorter sleep for better responsiveness
+        usleep(20000); // 20ms
     }
     
     printf("Exiting main loop, cleaning up...\n");
@@ -223,7 +231,7 @@ int main (void) {
     // Clean up
     vterm_destroy();
     free(image);
-    EPD_7IN5_V2_Sleep(); // Sleep the Display
+    EPD_7IN5_V2_Sleep();
     DEV_Module_Exit();
     keyboard_close();
     close(pty_fd);

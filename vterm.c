@@ -24,9 +24,17 @@ static int pty_fd = -1;
 
 // Simple terminal emulator state
 static char **screen_buffer = NULL;  // 2D array of characters
+static uint8_t **attr_buffer = NULL; // 2D array of attributes (colors, etc.)
 static int cursor_row = 0;
 static int cursor_col = 0;
 static int damage_pending = 0;
+static int cursor_visible = 1;
+
+// Scrollback buffer
+#define SCROLLBACK_LINES 100
+static char **scrollback_buffer = NULL;
+static int scrollback_pos = 0;
+static int scrollback_count = 0;
 
 // ANSI escape sequence parser state
 typedef enum {
@@ -40,6 +48,12 @@ static parse_state_t parse_state = PARSE_NORMAL;
 static char escape_buffer[64];
 static int escape_pos = 0;
 
+// Current text attributes
+static uint8_t current_attr = 0;
+#define ATTR_BOLD     0x01
+#define ATTR_REVERSE  0x02
+#define ATTR_UNDERLINE 0x04
+
 // Forward declarations
 static void clear_screen_buffer(void);
 static void scroll_up(void);
@@ -47,9 +61,10 @@ static void process_escape_sequence(void);
 static void move_cursor(int row, int col);
 static void put_char_at(int row, int col, char ch);
 static void render_screen_buffer(void);
+static void save_line_to_scrollback(int row);
 
 int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
-    printf("vterm_init: Starting fallback terminal emulator...\n");
+    printf("Initializing enhanced terminal emulator...\n");
     
     if (!buffer) {
         printf("Error: vterm_init called with NULL buffer\n");
@@ -72,30 +87,50 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     vterm_buffer = buffer;
     buffer_size = (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8;
 
-    printf("Initializing fallback terminal: %dx%d\n", cols, rows);
+    printf("Terminal dimensions: %dx%d\n", cols, rows);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
     // Allocate screen buffer
     screen_buffer = malloc(term_rows * sizeof(char*));
-    if (!screen_buffer) {
-        printf("Error: Failed to allocate screen buffer rows\n");
+    attr_buffer = malloc(term_rows * sizeof(uint8_t*));
+    if (!screen_buffer || !attr_buffer) {
+        printf("Error: Failed to allocate screen buffers\n");
         return -1;
     }
 
     for (int i = 0; i < term_rows; i++) {
-        screen_buffer[i] = malloc(term_cols + 1); // +1 for null terminator
-        if (!screen_buffer[i]) {
+        screen_buffer[i] = malloc(term_cols + 1);
+        attr_buffer[i] = malloc(term_cols);
+        if (!screen_buffer[i] || !attr_buffer[i]) {
             printf("Error: Failed to allocate screen buffer row %d\n", i);
-            // Clean up already allocated rows
+            // Clean up
             for (int j = 0; j < i; j++) {
                 free(screen_buffer[j]);
+                free(attr_buffer[j]);
             }
             free(screen_buffer);
+            free(attr_buffer);
             screen_buffer = NULL;
+            attr_buffer = NULL;
             return -1;
         }
         memset(screen_buffer[i], ' ', term_cols);
         screen_buffer[i][term_cols] = '\0';
+        memset(attr_buffer[i], 0, term_cols);
+    }
+
+    // Allocate scrollback buffer
+    scrollback_buffer = malloc(SCROLLBACK_LINES * sizeof(char*));
+    if (scrollback_buffer) {
+        for (int i = 0; i < SCROLLBACK_LINES; i++) {
+            scrollback_buffer[i] = malloc(term_cols + 1);
+            if (scrollback_buffer[i]) {
+                memset(scrollback_buffer[i], ' ', term_cols);
+                scrollback_buffer[i][term_cols] = '\0';
+            }
+        }
+        scrollback_pos = 0;
+        scrollback_count = 0;
     }
 
     // Clear the framebuffer
@@ -107,22 +142,34 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     parse_state = PARSE_NORMAL;
     escape_pos = 0;
     damage_pending = 0;
+    current_attr = 0;
+    cursor_visible = 1;
 
-    printf("Fallback terminal initialized successfully\n");
+    printf("Enhanced terminal initialized successfully\n");
     return 0;
 }
 
 void vterm_destroy(void) {
     if (screen_buffer) {
-        printf("Destroying fallback terminal\n");
+        printf("Destroying terminal\n");
         for (int i = 0; i < term_rows; i++) {
-            if (screen_buffer[i]) {
-                free(screen_buffer[i]);
-            }
+            if (screen_buffer[i]) free(screen_buffer[i]);
+            if (attr_buffer[i]) free(attr_buffer[i]);
         }
         free(screen_buffer);
+        free(attr_buffer);
         screen_buffer = NULL;
+        attr_buffer = NULL;
     }
+    
+    if (scrollback_buffer) {
+        for (int i = 0; i < SCROLLBACK_LINES; i++) {
+            if (scrollback_buffer[i]) free(scrollback_buffer[i]);
+        }
+        free(scrollback_buffer);
+        scrollback_buffer = NULL;
+    }
+    
     vterm_buffer = NULL;
     buffer_size = 0;
     damage_pending = 0;
@@ -134,8 +181,6 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     }
     
     vterm_buffer = buffer;
-    
-    printf("Processing %zu bytes of terminal output\n", len);
     
     for (size_t i = 0; i < len; i++) {
         char ch = data[i];
@@ -158,16 +203,20 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
                         cursor_col--;
                     }
                 } else if (ch == '\t') {
-                    // Simple tab handling - move to next 8-column boundary
-                    cursor_col = ((cursor_col + 8) / 8) * 8;
-                    if (cursor_col >= term_cols) {
+                    // Tab to next 8-column boundary
+                    int next_tab = ((cursor_col + 8) / 8) * 8;
+                    if (next_tab >= term_cols) {
                         cursor_col = 0;
                         cursor_row++;
                         if (cursor_row >= term_rows) {
                             scroll_up();
                             cursor_row = term_rows - 1;
                         }
+                    } else {
+                        cursor_col = next_tab;
                     }
+                } else if (ch == '\a') {
+                    // Bell - ignore for now
                 } else if (isprint(ch) || ch == ' ') {
                     // Handle line wrapping
                     if (cursor_col >= term_cols) {
@@ -188,8 +237,13 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
                 if (ch == '[') {
                     parse_state = PARSE_CSI;
                     escape_pos = 0;
+                } else if (ch == 'c') {
+                    // Reset terminal
+                    clear_screen_buffer();
+                    current_attr = 0;
+                    parse_state = PARSE_NORMAL;
                 } else {
-                    // Other escape sequences - ignore for now
+                    // Other escape sequences - ignore
                     parse_state = PARSE_NORMAL;
                 }
                 break;
@@ -226,8 +280,6 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
         return;
     }
 
-    printf("Processing key: code=%u, mods=%d\n", keycode, modifiers);
-
     if (keycode >= 32 && keycode < 127) {
         // Printable ASCII character
         char ch = (char)keycode;
@@ -235,15 +287,13 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
         // Handle Ctrl combinations
         if (modifiers & 0x04) { // Ctrl modifier
             if (keycode >= 'a' && keycode <= 'z') {
-                ch = keycode - 'a' + 1; // Ctrl+A = 0x01, etc.
+                ch = keycode - 'a' + 1;
             } else if (keycode >= 'A' && keycode <= 'Z') {
                 ch = keycode - 'A' + 1;
             }
         }
         
-        ssize_t written = write(pty_fd, &ch, 1);
-        printf("Wrote character '%c' (0x%02x) to PTY: %zd bytes\n", 
-               isprint(ch) ? ch : '?', (unsigned char)ch, written);
+        write(pty_fd, &ch, 1);
     } else {
         // Special keys
         VTermKey key = convert_keycode_to_vtermkey(keycode);
@@ -257,7 +307,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     len = 1;
                     break;
                 case VTERM_KEY_BACKSPACE:
-                    seq[0] = '\x7f'; // DEL character
+                    seq[0] = '\x7f';
                     len = 1;
                     break;
                 case VTERM_KEY_TAB:
@@ -292,17 +342,21 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                     strcpy(seq, "\x1b[F");
                     len = 3;
                     break;
+                case VTERM_KEY_PAGEUP:
+                    strcpy(seq, "\x1b[5~");
+                    len = 4;
+                    break;
+                case VTERM_KEY_PAGEDOWN:
+                    strcpy(seq, "\x1b[6~");
+                    len = 4;
+                    break;
                 default:
-                    printf("Unhandled special key: %d\n", key);
                     break;
             }
             
             if (len > 0) {
-                ssize_t written = write(pty_fd, seq, len);
-                printf("Wrote escape sequence to PTY: %zd bytes\n", written);
+                write(pty_fd, seq, len);
             }
-        } else {
-            printf("Unknown keycode: %u\n", keycode);
         }
     }
 }
@@ -320,7 +374,6 @@ void vterm_redraw(uint8_t *buffer) {
 
 void flush_display(void) {
     if (vterm_buffer) {
-        printf("Flushing display to E-ink\n");
         EPD_7IN5_V2_Display(vterm_buffer);
     }
 }
@@ -383,32 +436,53 @@ static void clear_screen_buffer(void) {
     for (int i = 0; i < term_rows; i++) {
         memset(screen_buffer[i], ' ', term_cols);
         screen_buffer[i][term_cols] = '\0';
+        memset(attr_buffer[i], 0, term_cols);
     }
     cursor_row = 0;
     cursor_col = 0;
 }
 
+static void save_line_to_scrollback(int row) {
+    if (!scrollback_buffer || row < 0 || row >= term_rows) return;
+    
+    // Copy line to scrollback
+    if (scrollback_buffer[scrollback_pos]) {
+        strcpy(scrollback_buffer[scrollback_pos], screen_buffer[row]);
+    }
+    
+    scrollback_pos = (scrollback_pos + 1) % SCROLLBACK_LINES;
+    if (scrollback_count < SCROLLBACK_LINES) {
+        scrollback_count++;
+    }
+}
+
 static void scroll_up(void) {
     if (!screen_buffer) return;
     
+    // Save the top line to scrollback
+    save_line_to_scrollback(0);
+    
     // Move all lines up by one
     char *first_line = screen_buffer[0];
+    uint8_t *first_attr = attr_buffer[0];
+    
     for (int i = 0; i < term_rows - 1; i++) {
         screen_buffer[i] = screen_buffer[i + 1];
+        attr_buffer[i] = attr_buffer[i + 1];
     }
     
     // Clear the last line
     screen_buffer[term_rows - 1] = first_line;
+    attr_buffer[term_rows - 1] = first_attr;
     memset(screen_buffer[term_rows - 1], ' ', term_cols);
     screen_buffer[term_rows - 1][term_cols] = '\0';
+    memset(attr_buffer[term_rows - 1], 0, term_cols);
 }
 
 static void process_escape_sequence(void) {
     if (escape_pos == 0) return;
     
     char cmd = escape_buffer[escape_pos - 1];
-    
-    printf("Processing ANSI sequence: [%s\n", escape_buffer);
     
     switch (cmd) {
         case 'H': // Cursor position
@@ -417,37 +491,121 @@ static void process_escape_sequence(void) {
             if (escape_pos > 1) {
                 sscanf(escape_buffer, "%d;%d", &row, &col);
             }
-            move_cursor(row - 1, col - 1); // Convert to 0-based
+            move_cursor(row - 1, col - 1);
             break;
         }
-        case 'A': // Cursor up
-            if (cursor_row > 0) cursor_row--;
+        case 'A': { // Cursor up
+            int n = 1;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &n);
+            }
+            cursor_row = (cursor_row - n < 0) ? 0 : cursor_row - n;
             break;
-        case 'B': // Cursor down
-            if (cursor_row < term_rows - 1) cursor_row++;
+        }
+        case 'B': { // Cursor down
+            int n = 1;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &n);
+            }
+            cursor_row = (cursor_row + n >= term_rows) ? term_rows - 1 : cursor_row + n;
             break;
-        case 'C': // Cursor right
-            if (cursor_col < term_cols - 1) cursor_col++;
+        }
+        case 'C': { // Cursor right
+            int n = 1;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &n);
+            }
+            cursor_col = (cursor_col + n >= term_cols) ? term_cols - 1 : cursor_col + n;
             break;
-        case 'D': // Cursor left
-            if (cursor_col > 0) cursor_col--;
+        }
+        case 'D': { // Cursor left
+            int n = 1;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &n);
+            }
+            cursor_col = (cursor_col - n < 0) ? 0 : cursor_col - n;
             break;
-        case 'J': // Clear screen
-            if (escape_buffer[0] == '2') {
+        }
+        case 'J': { // Clear screen
+            int mode = 0;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &mode);
+            }
+            if (mode == 2) {
                 clear_screen_buffer();
             }
             break;
-        case 'K': // Clear line
+        }
+        case 'K': { // Clear line
+            int mode = 0;
+            if (escape_pos > 1) {
+                sscanf(escape_buffer, "%d", &mode);
+            }
             if (screen_buffer && cursor_row >= 0 && cursor_row < term_rows) {
-                memset(&screen_buffer[cursor_row][cursor_col], ' ', 
-                       term_cols - cursor_col);
+                if (mode == 0) {
+                    // Clear from cursor to end of line
+                    memset(&screen_buffer[cursor_row][cursor_col], ' ', 
+                           term_cols - cursor_col);
+                    memset(&attr_buffer[cursor_row][cursor_col], 0,
+                           term_cols - cursor_col);
+                } else if (mode == 1) {
+                    // Clear from start of line to cursor
+                    memset(screen_buffer[cursor_row], ' ', cursor_col + 1);
+                    memset(attr_buffer[cursor_row], 0, cursor_col + 1);
+                } else if (mode == 2) {
+                    // Clear entire line
+                    memset(screen_buffer[cursor_row], ' ', term_cols);
+                    memset(attr_buffer[cursor_row], 0, term_cols);
+                }
             }
             break;
-        case 'm': // Set graphics mode (colors, etc.) - ignore for now
+        }
+        case 'm': { // Set graphics mode
+            // Parse multiple parameters
+            char *param = escape_buffer;
+            char *end;
+            
+            do {
+                int code = strtol(param, &end, 10);
+                
+                switch (code) {
+                    case 0:  // Reset
+                        current_attr = 0;
+                        break;
+                    case 1:  // Bold
+                        current_attr |= ATTR_BOLD;
+                        break;
+                    case 4:  // Underline
+                        current_attr |= ATTR_UNDERLINE;
+                        break;
+                    case 7:  // Reverse
+                        current_attr |= ATTR_REVERSE;
+                        break;
+                    case 22: // Normal intensity
+                        current_attr &= ~ATTR_BOLD;
+                        break;
+                    case 24: // No underline
+                        current_attr &= ~ATTR_UNDERLINE;
+                        break;
+                    case 27: // No reverse
+                        current_attr &= ~ATTR_REVERSE;
+                        break;
+                    // Color codes 30-37, 40-47 - ignore for now
+                }
+                
+                param = end;
+                if (*param == ';') param++;
+            } while (*param && param < escape_buffer + escape_pos);
             break;
-        default:
-            printf("Unhandled ANSI sequence: %c\n", cmd);
+        }
+        case 'l':
+        case 'h': { // Set/reset mode
+            if (strstr(escape_buffer, "?25") == escape_buffer) {
+                // Cursor visibility
+                cursor_visible = (cmd == 'h');
+            }
             break;
+        }
     }
 }
 
@@ -462,6 +620,7 @@ static void put_char_at(int row, int col, char ch) {
     }
     
     screen_buffer[row][col] = ch;
+    attr_buffer[row][col] = current_attr;
 }
 
 static void render_screen_buffer(void) {
@@ -476,31 +635,54 @@ static void render_screen_buffer(void) {
     for (int row = 0; row < term_rows; row++) {
         for (int col = 0; col < term_cols; col++) {
             char ch = screen_buffer[row][col];
-            if (ch != ' ') {
+            uint8_t attr = attr_buffer[row][col];
+            
+            if (ch != ' ' || attr != 0) {
                 int x = col * CELL_WIDTH;
                 int y = row * CELL_HEIGHT;
-                draw_char_fallback(x, y, ch, COLOR_BLACK);
+                
+                // Determine colors based on attributes
+                int fg_color = COLOR_BLACK;
+                int bg_color = COLOR_WHITE;
+                
+                if (attr & ATTR_REVERSE) {
+                    fg_color = COLOR_WHITE;
+                    bg_color = COLOR_BLACK;
+                }
+                
+                // Draw background if needed
+                if (bg_color == COLOR_BLACK) {
+                    draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_BLACK);
+                }
+                
+                // Draw character
+                if (ch != ' ') {
+                    draw_char_fallback(x, y, ch, fg_color);
+                }
+                
+                // Draw underline if needed
+                if (attr & ATTR_UNDERLINE) {
+                    draw_rect(x, y + CELL_HEIGHT - 2, CELL_WIDTH, 1, fg_color);
+                }
             }
         }
     }
     
-    // Draw cursor (simple block cursor)
-    if (cursor_row >= 0 && cursor_row < term_rows && 
+    // Draw cursor if visible
+    if (cursor_visible && cursor_row >= 0 && cursor_row < term_rows && 
         cursor_col >= 0 && cursor_col < term_cols) {
         int x = cursor_col * CELL_WIDTH;
         int y = cursor_row * CELL_HEIGHT;
         
-        // Draw cursor as inverted block
+        // Draw cursor as a block that inverts the cell
         for (int dy = 0; dy < CELL_HEIGHT; dy++) {
             for (int dx = 0; dx < CELL_WIDTH; dx++) {
-                // Get current pixel
                 int px = x + dx;
                 int py = y + dy;
                 if (px >= 0 && px < EPD_7IN5_V2_WIDTH && py >= 0 && py < EPD_7IN5_V2_HEIGHT) {
                     int byte_index = (py * EPD_7IN5_V2_WIDTH + px) / 8;
                     int bit_index = 7 - (px % 8);
                     if (byte_index >= 0 && byte_index < buffer_size) {
-                        // Invert the pixel
                         vterm_buffer[byte_index] ^= (1 << bit_index);
                     }
                 }
