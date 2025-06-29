@@ -101,22 +101,21 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
         case KEY_M: return shift_pressed ? 'M' : 'm';           // 50
     }
     
-    // Handle numbers
-    if (keycode >= KEY_1 && keycode <= KEY_9) {
-        if (shift_pressed) {
-            // Shifted number keys
-            const char shifted[] = "!@#$%^&*()";
-            return shifted[keycode - KEY_1];
-        } else {
-            return '1' + (keycode - KEY_1);
-        }
+    // Handle numbers and their shifted symbols
+    switch (keycode) {
+        case KEY_1: return shift_pressed ? '!' : '1';           // 2
+        case KEY_2: return shift_pressed ? '@' : '2';           // 3
+        case KEY_3: return shift_pressed ? '#' : '3';           // 4
+        case KEY_4: return shift_pressed ? '$' : '4';           // 5
+        case KEY_5: return shift_pressed ? '%' : '5';           // 6
+        case KEY_6: return shift_pressed ? '^' : '6';           // 7
+        case KEY_7: return shift_pressed ? '&' : '7';           // 8
+        case KEY_8: return shift_pressed ? '*' : '8';           // 9
+        case KEY_9: return shift_pressed ? '(' : '9';           // 10
+        case KEY_0: return shift_pressed ? ')' : '0';           // 11
     }
     
-    if (keycode == KEY_0) {
-        return shift_pressed ? ')' : '0';
-    }
-    
-    // Handle special characters
+    // Handle special characters and punctuation
     switch (keycode) {
         case KEY_SPACE: return ' ';                             // 57
         case KEY_MINUS: return shift_pressed ? '_' : '-';       // 12
@@ -353,9 +352,10 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
 
     printf("Processing key: %u, modifiers: %d\n", keycode, modifiers);
 
-    // Check for Ctrl combinations first
-    int ctrl_pressed = (modifiers & 0x04) != 0;
-    int shift_pressed = (modifiers & 0x01) != 0;
+    // Check for modifier keys
+    int ctrl_pressed = (modifiers & 0x04) != 0;   // Ctrl
+    int shift_pressed = (modifiers & 0x01) != 0;  // Shift
+    int alt_pressed = (modifiers & 0x08) != 0;    // Alt
     
     if (ctrl_pressed) {
         // Handle Ctrl+letter combinations
@@ -372,7 +372,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                 case KEY_T: ctrl_char = 20; break;  // Ctrl+T
                 case KEY_Y: ctrl_char = 25; break;  // Ctrl+Y
                 case KEY_U: ctrl_char = 21; break;  // Ctrl+U
-                case KEY_I: ctrl_char = 9; break;   // Ctrl+I
+                case KEY_I: ctrl_char = 9; break;   // Ctrl+I (Tab)
                 case KEY_O: ctrl_char = 15; break;  // Ctrl+O
                 case KEY_P: ctrl_char = 16; break;  // Ctrl+P
                 case KEY_A: ctrl_char = 1; break;   // Ctrl+A
@@ -380,8 +380,8 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                 case KEY_D: ctrl_char = 4; break;   // Ctrl+D
                 case KEY_F: ctrl_char = 6; break;   // Ctrl+F
                 case KEY_G: ctrl_char = 7; break;   // Ctrl+G
-                case KEY_H: ctrl_char = 8; break;   // Ctrl+H
-                case KEY_J: ctrl_char = 10; break;  // Ctrl+J
+                case KEY_H: ctrl_char = 8; break;   // Ctrl+H (Backspace)
+                case KEY_J: ctrl_char = 10; break;  // Ctrl+J (Line Feed)
                 case KEY_K: ctrl_char = 11; break;  // Ctrl+K
                 case KEY_L: ctrl_char = 12; break;  // Ctrl+L
                 case KEY_Z: ctrl_char = 26; break;  // Ctrl+Z
@@ -390,7 +390,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
                 case KEY_V: ctrl_char = 22; break;  // Ctrl+V
                 case KEY_B: ctrl_char = 2; break;   // Ctrl+B
                 case KEY_N: ctrl_char = 14; break;  // Ctrl+N
-                case KEY_M: ctrl_char = 13; break;  // Ctrl+M
+                case KEY_M: ctrl_char = 13; break;  // Ctrl+M (Enter)
                 default: return;
             }
             
@@ -404,9 +404,58 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
             case KEY_SPACE:
                 {
                     char null_char = 0;
+                    printf("Sending Ctrl+Space (NUL)\n");
                     write(pty_fd, &null_char, 1);
                     return;
                 }
+            case KEY_LEFTBRACE:  // Ctrl+[
+                {
+                    char esc_char = 27;
+                    printf("Sending Ctrl+[ (ESC)\n");
+                    write(pty_fd, &esc_char, 1);
+                    return;
+                }
+            case KEY_BACKSLASH: // Ctrl+\
+                {
+                    char fs_char = 28;
+                    printf("Sending Ctrl+\\ (FS)\n");
+                    write(pty_fd, &fs_char, 1);
+                    return;
+                }
+            case KEY_RIGHTBRACE: // Ctrl+]
+                {
+                    char gs_char = 29;
+                    printf("Sending Ctrl+] (GS)\n");
+                    write(pty_fd, &gs_char, 1);
+                    return;
+                }
+            case KEY_6: // Ctrl+^ (Ctrl+Shift+6)
+                if (shift_pressed) {
+                    char rs_char = 30;
+                    printf("Sending Ctrl+^ (RS)\n");
+                    write(pty_fd, &rs_char, 1);
+                    return;
+                }
+                break;
+            case KEY_MINUS: // Ctrl+_ (Ctrl+Shift+-)
+                if (shift_pressed) {
+                    char us_char = 31;
+                    printf("Sending Ctrl+_ (US)\n");
+                    write(pty_fd, &us_char, 1);
+                    return;
+                }
+                break;
+        }
+    }
+
+    // Handle Alt combinations (send ESC prefix)
+    if (alt_pressed) {
+        char ascii_char = keycode_to_ascii(keycode, shift_pressed);
+        if (ascii_char != 0) {
+            printf("Sending Alt+%c (ESC + %c)\n", ascii_char, ascii_char);
+            write(pty_fd, "\x1b", 1);  // ESC prefix
+            write(pty_fd, &ascii_char, 1);
+            return;
         }
     }
 
@@ -418,7 +467,7 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
             return;
         case KEY_BACKSPACE:
             printf("Sending Backspace\n");
-            write(pty_fd, "\x7f", 1);
+            write(pty_fd, "\x7f", 1);  // DEL character
             return;
         case KEY_TAB:
             printf("Sending Tab\n");
@@ -467,6 +516,55 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
         case KEY_INSERT:
             printf("Sending Insert\n");
             write(pty_fd, "\x1b[2~", 4);
+            return;
+        // Function keys
+        case KEY_F1:
+            printf("Sending F1\n");
+            write(pty_fd, "\x1bOP", 3);
+            return;
+        case KEY_F2:
+            printf("Sending F2\n");
+            write(pty_fd, "\x1bOQ", 3);
+            return;
+        case KEY_F3:
+            printf("Sending F3\n");
+            write(pty_fd, "\x1bOR", 3);
+            return;
+        case KEY_F4:
+            printf("Sending F4\n");
+            write(pty_fd, "\x1bOS", 3);
+            return;
+        case KEY_F5:
+            printf("Sending F5\n");
+            write(pty_fd, "\x1b[15~", 5);
+            return;
+        case KEY_F6:
+            printf("Sending F6\n");
+            write(pty_fd, "\x1b[17~", 5);
+            return;
+        case KEY_F7:
+            printf("Sending F7\n");
+            write(pty_fd, "\x1b[18~", 5);
+            return;
+        case KEY_F8:
+            printf("Sending F8\n");
+            write(pty_fd, "\x1b[19~", 5);
+            return;
+        case KEY_F9:
+            printf("Sending F9\n");
+            write(pty_fd, "\x1b[20~", 5);
+            return;
+        case KEY_F10:
+            printf("Sending F10\n");
+            write(pty_fd, "\x1b[21~", 5);
+            return;
+        case KEY_F11:
+            printf("Sending F11\n");
+            write(pty_fd, "\x1b[23~", 5);
+            return;
+        case KEY_F12:
+            printf("Sending F12\n");
+            write(pty_fd, "\x1b[24~", 5);
             return;
     }
 
@@ -532,7 +630,7 @@ void draw_char_fallback(int x, int y, char ch, int color) {
     extern const uint8_t font8x16[96][16];
     
     if (ch < 0x20 || ch > 0x7F) {
-        ch = '?';
+        ch = '?';  // Replace unprintable characters with '?'
     }
     
     const uint8_t *glyph = font8x16[ch - 0x20];

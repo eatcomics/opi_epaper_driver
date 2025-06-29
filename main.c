@@ -16,8 +16,8 @@
 
 unsigned long last_input_time = 0;
 unsigned long last_refresh_time = 0;
-#define QUIET_TIMEOUT_MS 800   // Reduced for better responsiveness
-#define MIN_REFRESH_INTERVAL_MS 300  // Minimum time between full refreshes
+#define QUIET_TIMEOUT_MS 1500   // Wait 1.5 seconds after last input before refreshing
+#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between full refreshes
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -137,7 +137,7 @@ int main (void) {
     }
 
     // Send initial welcome message
-    const char *msg = "Welcome to E-ink Terminal!\r\nType 'help' for basic commands.\r\n";
+    const char *msg = "Welcome to E-ink Terminal!\r\nType commands or run 'vim' or 'emacs' for editing.\r\n";
     ssize_t written = write(pty_fd, msg, strlen(msg));
     if (written < 0) {
         printf("Warning: Failed to write initial message to PTY\n");
@@ -155,7 +155,7 @@ int main (void) {
     usleep(300000); // 300ms
     
     // Read any initial output from the shell
-    char buf[512]; // Even larger buffer for better performance
+    char buf[1024]; // Large buffer for better performance
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0';
@@ -171,22 +171,26 @@ int main (void) {
     vterm_redraw(image);
     last_refresh_time = current_millis();
     
-    // Main event loop
+    // Main event loop with improved buffering
     while (run && !cleanup_requested) {
         int activity = 0;
         unsigned long now = current_millis();
         
-        // Handle keyboard input
+        // Handle keyboard input (collect multiple keys if typed quickly)
         uint32_t keycode;
         int modifiers;
-        if (read_key_event(&keycode, &modifiers)) {
+        int keys_processed = 0;
+        
+        // Process up to 10 keys in one batch to handle fast typing
+        while (keys_processed < 10 && read_key_event(&keycode, &modifiers)) {
             printf("Key: %u (mods=%d)\n", keycode, modifiers);
             vterm_process_input(keycode, modifiers);
             last_input_time = now;
             activity = 1;
+            keys_processed++;
         }
 
-        // Handle PTY output
+        // Handle PTY output (read larger chunks)
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0';
@@ -202,28 +206,33 @@ int main (void) {
             break;
         }
 
-        // Smart refresh logic
+        // Smart refresh logic - only refresh after user stops typing/activity
         int should_refresh = 0;
         
         if (vterm_has_pending_damage()) {
-            // There's pending damage
+            // There's pending damage that needs to be displayed
             if (now - last_input_time > QUIET_TIMEOUT_MS) {
-                // Quiet period - safe to refresh
+                // User has stopped typing for a while - safe to refresh
                 should_refresh = 1;
-            } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 3) {
-                // Force refresh if too much time has passed
+                printf("Quiet period detected, refreshing display...\n");
+            } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 6) {
+                // Force refresh if too much time has passed (3 seconds)
                 should_refresh = 1;
+                printf("Force refresh due to timeout...\n");
             }
         }
         
         if (should_refresh) {
-            printf("Refreshing display...\n");
             vterm_redraw(image);
             last_refresh_time = now;
         }
 
-        // Shorter sleep for better responsiveness
-        usleep(10000); // 10ms - even faster for better keyboard response
+        // Shorter sleep for better responsiveness during typing
+        if (activity) {
+            usleep(5000);  // 5ms when there's activity
+        } else {
+            usleep(20000); // 20ms when idle
+        }
     }
     
     printf("Exiting main loop, cleaning up...\n");
