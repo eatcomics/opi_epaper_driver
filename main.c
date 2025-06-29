@@ -16,9 +16,9 @@
 
 unsigned long last_input_time = 0;
 unsigned long last_refresh_time = 0;
-#define QUIET_TIMEOUT_MS 500    // Reduced from 1200ms - refresh faster for better responsiveness
-#define MIN_REFRESH_INTERVAL_MS 200  // Reduced from 300ms
-#define FORCE_REFRESH_TIMEOUT_MS 2000  // Force refresh after 2 seconds
+#define QUIET_TIMEOUT_MS 1000    // Wait 1 second after last input before refreshing
+#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between refreshes
+#define FORCE_REFRESH_TIMEOUT_MS 3000  // Force refresh after 3 seconds
 
 // Global cleanup flag
 static volatile int cleanup_requested = 0;
@@ -143,12 +143,12 @@ int main (void) {
     last_input_time = current_millis();
     last_refresh_time = last_input_time;
     
-    // Give the shell a moment to start up
+    // Give the shell a moment to start up and send initial prompt
     printf("Waiting for shell to initialize...\n");
-    usleep(500000); // 500ms
+    usleep(1000000); // 1 second - give shell more time to start
     
-    // Read any initial output from the shell
-    char buf[4096]; // Larger buffer for better performance
+    // Read any initial output from the shell (like the prompt)
+    char buf[8192]; // Large buffer for shell startup
     ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0';
@@ -157,6 +157,8 @@ int main (void) {
         last_input_time = current_millis();
     } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         printf("Error reading initial output: %s\n", strerror(errno));
+    } else {
+        printf("No initial shell output received\n");
     }
     
     // Do an initial redraw
@@ -166,7 +168,7 @@ int main (void) {
         last_refresh_time = current_millis();
     }
     
-    // Main event loop with improved buffering
+    // Main event loop with proper buffering
     while (run && !cleanup_requested) {
         int activity = 0;
         unsigned long now = current_millis();
@@ -176,8 +178,8 @@ int main (void) {
         int modifiers;
         int keys_processed = 0;
         
-        // Process up to 10 keys in one batch to handle fast typing
-        while (keys_processed < 10 && read_key_event(&keycode, &modifiers)) {
+        // Process up to 5 keys in one batch to handle fast typing
+        while (keys_processed < 5 && read_key_event(&keycode, &modifiers)) {
             printf("Key: %u (mods=%d)\n", keycode, modifiers);
             tsm_term_process_input(keycode, modifiers);
             last_input_time = now;
@@ -225,9 +227,9 @@ int main (void) {
 
         // Shorter sleep for better responsiveness during typing
         if (activity) {
-            usleep(1000);  // 1ms when there's activity
+            usleep(2000);  // 2ms when there's activity
         } else {
-            usleep(5000);  // 5ms when idle
+            usleep(10000); // 10ms when idle
         }
     }
     

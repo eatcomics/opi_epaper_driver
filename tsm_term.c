@@ -14,8 +14,8 @@
 #define COLOR_WHITE 0
 #define COLOR_BLACK 1
 
-// Output buffering
-#define OUTPUT_BUFFER_SIZE 4096
+// Output buffering - much larger buffer
+#define OUTPUT_BUFFER_SIZE 8192
 static char output_buffer[OUTPUT_BUFFER_SIZE];
 static size_t output_buffer_pos = 0;
 static int output_buffer_dirty = 0;
@@ -122,7 +122,16 @@ void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
     
     framebuffer = buffer;
     
-    printf("tsm_term_feed_output: %zu bytes\n", len);
+    printf("tsm_term_feed_output: %zu bytes: ", len);
+    // Print first 40 chars for debugging
+    for (size_t i = 0; i < len && i < 40; i++) {
+        if (data[i] >= 32 && data[i] <= 126) {
+            printf("%c", data[i]);
+        } else {
+            printf("\\x%02x", (unsigned char)data[i]);
+        }
+    }
+    printf("\n");
     
     // Add to output buffer instead of processing immediately
     for (size_t i = 0; i < len; i++) {
@@ -131,6 +140,7 @@ void tsm_term_feed_output(const char *data, size_t len, uint8_t *buffer) {
             output_buffer_dirty = 1;
         } else {
             // Buffer full, process what we have
+            printf("Output buffer full, processing...\n");
             process_buffered_output();
             output_buffer[0] = data[i];
             output_buffer_pos = 1;
@@ -189,6 +199,9 @@ static void process_buffered_output(void) {
                     case 0x1B:  // Escape
                         parser_state = STATE_ESCAPE;
                         escape_pos = 0;
+                        break;
+                        
+                    case 0x07:  // Bell - ignore
                         break;
                         
                     default:
@@ -268,6 +281,7 @@ static void flush_output_buffer(void) {
 
 void tsm_term_process_input(uint32_t keycode, int modifiers) {
     if (pty_fd < 0) {
+        printf("ERROR: PTY not available (fd=%d)\n", pty_fd);
         return;
     }
 
@@ -280,51 +294,77 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
     // Handle special keys first
     switch (keycode) {
         case KEY_ENTER:
-            printf("Sending ENTER to PTY\n");
-            write(pty_fd, "\r", 1);
+            printf("Sending ENTER (\\r) to PTY\n");
+            if (write(pty_fd, "\r", 1) < 0) {
+                perror("write ENTER failed");
+            }
             return;
         case KEY_BACKSPACE:
-            printf("Sending BACKSPACE to PTY\n");
-            write(pty_fd, "\b", 1);
+            printf("Sending BACKSPACE (\\b) to PTY\n");
+            if (write(pty_fd, "\b", 1) < 0) {
+                perror("write BACKSPACE failed");
+            }
             return;
         case KEY_TAB:
-            printf("Sending TAB to PTY\n");
-            write(pty_fd, "\t", 1);
+            printf("Sending TAB (\\t) to PTY\n");
+            if (write(pty_fd, "\t", 1) < 0) {
+                perror("write TAB failed");
+            }
             return;
         case KEY_ESC:
             printf("Sending ESC to PTY\n");
-            write(pty_fd, "\x1b", 1);
+            if (write(pty_fd, "\x1b", 1) < 0) {
+                perror("write ESC failed");
+            }
             return;
         case KEY_UP:
             printf("Sending UP arrow to PTY\n");
-            write(pty_fd, "\x1b[A", 3);
+            if (write(pty_fd, "\x1b[A", 3) < 0) {
+                perror("write UP failed");
+            }
             return;
         case KEY_DOWN:
             printf("Sending DOWN arrow to PTY\n");
-            write(pty_fd, "\x1b[B", 3);
+            if (write(pty_fd, "\x1b[B", 3) < 0) {
+                perror("write DOWN failed");
+            }
             return;
         case KEY_RIGHT:
             printf("Sending RIGHT arrow to PTY\n");
-            write(pty_fd, "\x1b[C", 3);
+            if (write(pty_fd, "\x1b[C", 3) < 0) {
+                perror("write RIGHT failed");
+            }
             return;
         case KEY_LEFT:
             printf("Sending LEFT arrow to PTY\n");
-            write(pty_fd, "\x1b[D", 3);
+            if (write(pty_fd, "\x1b[D", 3) < 0) {
+                perror("write LEFT failed");
+            }
             return;
         case KEY_HOME:
-            write(pty_fd, "\x1b[H", 3);
+            if (write(pty_fd, "\x1b[H", 3) < 0) {
+                perror("write HOME failed");
+            }
             return;
         case KEY_END:
-            write(pty_fd, "\x1b[F", 3);
+            if (write(pty_fd, "\x1b[F", 3) < 0) {
+                perror("write END failed");
+            }
             return;
         case KEY_PAGEUP:
-            write(pty_fd, "\x1b[5~", 4);
+            if (write(pty_fd, "\x1b[5~", 4) < 0) {
+                perror("write PAGEUP failed");
+            }
             return;
         case KEY_PAGEDOWN:
-            write(pty_fd, "\x1b[6~", 4);
+            if (write(pty_fd, "\x1b[6~", 4) < 0) {
+                perror("write PAGEDOWN failed");
+            }
             return;
         case KEY_DELETE:
-            write(pty_fd, "\x1b[3~", 4);
+            if (write(pty_fd, "\x1b[3~", 4) < 0) {
+                perror("write DELETE failed");
+            }
             return;
     }
 
@@ -334,16 +374,22 @@ void tsm_term_process_input(uint32_t keycode, int modifiers) {
         if (ctrl_pressed && ascii_char >= 'a' && ascii_char <= 'z') {
             // Convert to control character
             char ctrl_char = ascii_char - 'a' + 1;
-            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, ctrl_char);
-            write(pty_fd, &ctrl_char, 1);
+            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, (unsigned char)ctrl_char);
+            if (write(pty_fd, &ctrl_char, 1) < 0) {
+                perror("write ctrl char failed");
+            }
         } else if (ctrl_pressed && ascii_char >= 'A' && ascii_char <= 'Z') {
             // Convert to control character
             char ctrl_char = ascii_char - 'A' + 1;
-            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, ctrl_char);
-            write(pty_fd, &ctrl_char, 1);
+            printf("Sending Ctrl+%c (0x%02x) to PTY\n", ascii_char, (unsigned char)ctrl_char);
+            if (write(pty_fd, &ctrl_char, 1) < 0) {
+                perror("write ctrl char failed");
+            }
         } else {
-            printf("Sending ASCII '%c' (0x%02x) to PTY\n", ascii_char, ascii_char);
-            write(pty_fd, &ascii_char, 1);
+            printf("Sending ASCII '%c' (0x%02x) to PTY\n", ascii_char, (unsigned char)ascii_char);
+            if (write(pty_fd, &ascii_char, 1) < 0) {
+                perror("write ascii char failed");
+            }
         }
     } else {
         printf("Unhandled keycode: %u\n", keycode);
@@ -361,6 +407,7 @@ void tsm_term_redraw(uint8_t *buffer) {
     flush_output_buffer();
     
     if (!damage_pending) {
+        printf("No damage pending, skipping redraw\n");
         return;
     }
     
