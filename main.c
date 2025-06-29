@@ -3,11 +3,13 @@
 #include "keyboard.h"
 #include "keymap.h"
 #include "hwconfig.h"
+#include "EPD_7in5_V2.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <poll.h>
+#include <unistd.h>
 
 unsigned long last_input_time = 0;
 #define QUIET_TIMEOUT_MS 1200
@@ -27,10 +29,15 @@ int main (void) {
     // Set up the E-Ink Display
     if (DEV_Module_Init() != 0) {
         printf("Hardware init failed.\n");
+        return -1;
     }
 
     // Init the e-ink display
-    EPD_7IN5_V2_Init();
+    if (EPD_7IN5_V2_Init() != 0) {
+        printf("E-ink display init failed.\n");
+        DEV_Module_Exit();
+        return -1;
+    }
     
     // Clear the display
     EPD_7IN5_V2_Clear();
@@ -44,11 +51,16 @@ int main (void) {
         return -1;
     }
 
-    // Configure Keyboard input
-    uint32_t keycode;
-    int modifiers;
+    // Initialize buffer to white (all bits set to 1)
+    memset(image, 0xFF, buffer_size);
 
-    keyboard_init();
+    // Configure Keyboard input
+    if (keyboard_init() != 0) {
+        printf("Keyboard init failed.\n");
+        free(image);
+        DEV_Module_Exit();
+        return -1;
+    }
     
     // Set up for PTY
     char *shell = "/bin/bash";
@@ -62,61 +74,49 @@ int main (void) {
     int term_rows = screen_height/16;
     int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
 
-    struct pollfd fds[] = {
-        { .fd = pty_fd, .events = POLLIN }
-    };
-
-    int ret = poll(fds, 1, 0); // non-blocking poll
-
-    // Init libvterm here
-    vterm_init(term_cols, term_rows, pty_fd, image);
-
-    const char *msg = "TEST: HELLO FROM PTY\n";
-    write(pty_fd, msg, strlen(msg));
-    
     if (pty_fd < 0) {
         fprintf(stderr, "Failed to open PTY!\n");
-        return 1;
+        free(image);
+        keyboard_close();
+        DEV_Module_Exit();
+        return -1;
     }
+
+    // Init libvterm here
+    if (vterm_init(term_cols, term_rows, pty_fd, image) != 0) {
+        fprintf(stderr, "Failed to initialize vterm!\n");
+        free(image);
+        keyboard_close();
+        close(pty_fd);
+        DEV_Module_Exit();
+        return -1;
+    }
+
+    printf("Terminal initialized: %dx%d characters\n", term_cols, term_rows);
+
+    // Send initial test message
+    const char *msg = "Welcome to E-ink Terminal!\n";
+    write(pty_fd, msg, strlen(msg));
     
-    // Handle PTY output
-    if (ret > 0 && (fds[0].revents & POLLIN)) {
-        char buf[4096];
-        ssize_t n = read(pty_fd, buf, sizeof(buf));
-        if (n > 0) {
-            vterm_feed_output(buf, n, image);
-            last_input_time = current_millis();
-        } else if (n == 0) {
-            printf(stderr, "PTY closed (EOF)\n");
-        }
-    } else {
-        printf("Error in PTY\n");
-    }
-  
+    // Set PTY to non-blocking
+    int flags = fcntl(pty_fd, F_GETFL, 0);
+    fcntl(pty_fd, F_SETFL, flags | O_NONBLOCK);
+    
     int run = 1;
+    last_input_time = current_millis();
+    
     // Da main loop
-    // Create main loop that handles reading keys (buffered) waits for a pause in typing,
-    //     reads PTY, and updates the e-ink screen with either a partial, or full refresh
     while (run) {
-        // Handle keyboard
-        uint32_t *key = &keycode;
-        int *mods = &modifiers;
-        // wait for input to happen
-        int input = 0;
-        while (!input) {
-            if (read_key_event(&key, &mods)) {
-                vterm_process_input(keycode, modifiers);
-                last_input_time = current_millis();
-                input = 1;
-            }
+        int activity = 0;
+        
+        // Handle keyboard input
+        uint32_t keycode;
+        int modifiers;
+        if (read_key_event(&keycode, &modifiers)) {
+            vterm_process_input(keycode, modifiers);
+            last_input_time = current_millis();
+            activity = 1;
         }
-
-        if (pty_fd < 0) {
-            fprintf(stderr, "Failed to open PTY!\n");
-            //draw_test_message(image); // show failure message
-            return 1;
-        }
-
 
         // Handle PTY output
         char buf[4096];
@@ -124,13 +124,18 @@ int main (void) {
         if (n > 0) {
             vterm_feed_output(buf, n, image);
             last_input_time = current_millis();
+            activity = 1;
+        } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            fprintf(stderr, "PTY read error: %s\n", strerror(errno));
+            break;
         }
 
         // Refresh screen after a quiet period
         unsigned long now = current_millis();
-        if (now - last_input_time > QUIET_TIMEOUT_MS) {
-            vterm_redraw(image);         // redraws screen from vterm buffer to framebuffer
-            last_input_time = now;  // don't double-refresh
+        if (activity && (now - last_input_time > QUIET_TIMEOUT_MS)) {
+            printf("Refreshing display...\n");
+            vterm_redraw(image);
+            last_input_time = now;
         }
 
         usleep(10000); // 10ms idle 
@@ -142,6 +147,7 @@ int main (void) {
     DEV_Module_Exit();
     keyboard_close();
     vterm_destroy();
+    close(pty_fd);
     
     return 0;
 }

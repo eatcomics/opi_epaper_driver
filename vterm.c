@@ -1,7 +1,7 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
 #include "font8x16.h"
-//#include "keymap.h"
+#include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
 #include <string.h>
@@ -27,7 +27,6 @@ static int pty_fd = -1;
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
 static int damage_callback(VTermRect rect, void *user);
-
 
 // Utility function that's optional in libvterm. Putting it here so you don't
 // have to recompile it with the option
@@ -61,6 +60,9 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     pty_fd = pty;
     vterm_buffer = buffer;
 
+    // Clear the buffer initially
+    memset(buffer, 0xFF, (EPD_7IN5_V2_WIDTH * EPD_7IN5_V2_HEIGHT) / 8);
+
     vterm = vterm_new(rows, cols);
     if (!vterm) return -1;
 
@@ -86,14 +88,60 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
 }
 
 void vterm_process_input(uint32_t keycode, int modifiers) {
-    if (keycode < 128 && isprint((unsigned char)keycode)) {
-       char utf8[8];
-       int n = vterm_unicode_to_utf8(keycode, utf8);
-       write(pty_fd, utf8, n);
+    if (keycode >= 32 && keycode < 127) {
+        // Printable ASCII character
+        char ch = (char)keycode;
+        write(pty_fd, &ch, 1);
     } else {
+        // Special keys
         VTermKey key = convert_keycode_to_vtermkey(keycode);
-        vterm_keyboard_key(vterm, key, modifiers); // this just updates vterm state
-    } 
+        if (key != VTERM_KEY_NONE) {
+            // Convert VTerm key to escape sequence and send to PTY
+            char seq[16];
+            int len = 0;
+            
+            switch (key) {
+                case VTERM_KEY_ENTER:
+                    seq[0] = '\r';
+                    len = 1;
+                    break;
+                case VTERM_KEY_BACKSPACE:
+                    seq[0] = '\b';
+                    len = 1;
+                    break;
+                case VTERM_KEY_TAB:
+                    seq[0] = '\t';
+                    len = 1;
+                    break;
+                case VTERM_KEY_ESCAPE:
+                    seq[0] = '\x1b';
+                    len = 1;
+                    break;
+                case VTERM_KEY_UP:
+                    strcpy(seq, "\x1b[A");
+                    len = 3;
+                    break;
+                case VTERM_KEY_DOWN:
+                    strcpy(seq, "\x1b[B");
+                    len = 3;
+                    break;
+                case VTERM_KEY_RIGHT:
+                    strcpy(seq, "\x1b[C");
+                    len = 3;
+                    break;
+                case VTERM_KEY_LEFT:
+                    strcpy(seq, "\x1b[D");
+                    len = 3;
+                    break;
+                default:
+                    break;
+            }
+            
+            if (len > 0) {
+                write(pty_fd, seq, len);
+            }
+        }
+    }
 }
 
 void vterm_redraw(uint8_t *buffer) {
@@ -118,12 +166,15 @@ void flush_display(void) {
 
 void set_pixel(int x, int y, int color) {
     if (x < 0 || x >= EPD_7IN5_V2_WIDTH || y < 0 || y >= EPD_7IN5_V2_HEIGHT) return;
+    
     int byte_index = (y * EPD_7IN5_V2_WIDTH + x) / 8;
     int bit_index = 7 - (x % 8);
-    if (color)
-        vterm_buffer[byte_index] &= ~(1 << bit_index); // black
-    else
-        vterm_buffer[byte_index] |= (1 << bit_index);  // white
+    
+    if (color == COLOR_BLACK) {
+        vterm_buffer[byte_index] &= ~(1 << bit_index); // Set bit to 0 for black
+    } else {
+        vterm_buffer[byte_index] |= (1 << bit_index);  // Set bit to 1 for white
+    }
 }
 
 void draw_rect(int x, int y, int w, int h, int color) {
@@ -134,24 +185,12 @@ void draw_rect(int x, int y, int w, int h, int color) {
     }
 }
 
-/*
-void draw_char(int x, int y, char c, int color) {
-    extern const uint8_t font8x16[96][16]; // this was font8x16[][16] because I didn't know how many chars there would be in the font 
-
-    const uint8_t *glyph = font8x16[(uint8_t)c];
-    for (int row = 0; row < CELL_HEIGHT; row++) {
-        uint8_t rowdata = glyph[row];
-        for (int col = 0; col < CELL_WIDTH; col++) {
-            if (rowdata & (1 << (7 - col))) {
-                set_pixel(x + col, y + row, color);
-            }
-        }
-    }
-}
-*/
-
 void draw_char(int x, int y, char ch, int color) {
-    if (ch < 0x20 || ch > 0x7F) return;
+    // Handle non-printable characters
+    if (ch < 0x20 || ch > 0x7F) {
+        ch = ' '; // Replace with space
+    }
+    
     const uint8_t *glyph = font8x16[ch - 0x20];
 
     for (int row = 0; row < CELL_HEIGHT; row++) {
@@ -159,17 +198,17 @@ void draw_char(int x, int y, char ch, int color) {
         for (int col = 0; col < CELL_WIDTH; col++) {
             if (bits & (1 << (7 - col))) {
                 set_pixel(x + col, y + row, color);
+            } else {
+                set_pixel(x + col, y + row, COLOR_WHITE); // Ensure background is white
             }
         }
     }
 }
 
-
 // --- Internal Functions ---
 
 static int damage_callback(VTermRect rect, void *user) {
     VTermScreen *screen = (VTermScreen *)user;
-    VTermScreenCell cell;
 
     for (int row = rect.start_row; row < rect.end_row; row++) {
         for (int col = rect.start_col; col < rect.end_col; col++) {
@@ -181,7 +220,7 @@ static int damage_callback(VTermRect rect, void *user) {
         }
     }
 
-    flush_display();
+    // Don't flush display here - let the main loop handle it
     return 1;
 }
 
@@ -189,13 +228,18 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
     int x = col * CELL_WIDTH;
     int y = row * CELL_HEIGHT;
 
+    // Clear the cell background first
     draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
 
-    if (cell->chars[0] == 0)
+    // If there's no character, just leave it blank
+    if (cell->chars[0] == 0) {
         return;
+    }
 
+    // Convert Unicode to UTF-8 and render the first character
     char ch[5] = {0};
-    vterm_unicode_to_utf8(cell->chars[0], ch);
-    draw_char(x, y, ch[0], COLOR_BLACK);
+    int len = vterm_unicode_to_utf8(cell->chars[0], ch);
+    if (len > 0 && ch[0] >= 0x20 && ch[0] <= 0x7F) {
+        draw_char(x, y, ch[0], COLOR_BLACK);
+    }
 }
-
