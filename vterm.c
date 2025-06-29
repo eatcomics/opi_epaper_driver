@@ -271,23 +271,21 @@ void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
     printf("LOG: About to call vterm_input_write...\n");
     fflush(stdout);  // Force output before potential crash
     
-    // SAFETY: Try feeding data in smaller chunks to isolate the problem
-    const size_t chunk_size = 16;
-    size_t processed = 0;
+    // SAFETY: Try feeding data one byte at a time to isolate the problem
+    printf("LOG: Processing data byte by byte\n");
     
-    while (processed < len) {
-        size_t current_chunk = (len - processed > chunk_size) ? chunk_size : (len - processed);
-        
-        printf("LOG: Processing chunk %zu-%zu (%zu bytes)\n", processed, processed + current_chunk - 1, current_chunk);
+    for (size_t i = 0; i < len; i++) {
+        printf("LOG: Processing byte %zu: 0x%02x ('%c')\n", i, (unsigned char)data[i], 
+               isprint(data[i]) ? data[i] : '.');
         fflush(stdout);
         
-        vterm_input_write(vterm, data + processed, current_chunk);
+        // Try to call vterm_input_write with just one byte
+        vterm_input_write(vterm, &data[i], 1);
         
-        printf("LOG: Chunk processed successfully\n");
-        processed += current_chunk;
+        printf("LOG: Byte %zu processed successfully\n", i);
     }
     
-    printf("LOG: All chunks processed successfully\n");
+    printf("LOG: All bytes processed successfully\n");
     damage_pending = 1;
     printf("LOG: vterm_feed_output COMPLETE\n");
 }
