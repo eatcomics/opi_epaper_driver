@@ -1,6 +1,6 @@
 #include "vterm.h"
 #include "EPD_7in5_V2.h"
-#include "unicode_font.h"
+#include "font_loader.h"
 #include "keymap.h"
 #include <vterm.h>
 #include <unistd.h>
@@ -90,9 +90,9 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     pty_fd = pty;
     vterm_buffer = buffer;
 
-    // Initialize Unicode font system
-    if (unicode_font_init() != 0) {
-        return -1;
+    // Initialize font loader
+    if (font_loader_init() != 0) {
+        printf("Warning: Font loader initialization failed, using fallback\n");
     }
 
     // Clear the buffer initially
@@ -115,7 +115,7 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
 void vterm_destroy(void) {
     if (vterm)
         vterm_free(vterm);
-    unicode_font_cleanup();
+    font_loader_cleanup();
 }
 
 void vterm_feed_output(const char *data, size_t len, uint8_t *buffer) {
@@ -222,15 +222,27 @@ void draw_rect(int x, int y, int w, int h, int color) {
 }
 
 void draw_unicode_char(int x, int y, uint32_t codepoint, int color) {
-    const uint8_t *glyph = get_glyph_bitmap(codepoint);
+    int width, height, advance;
+    const uint8_t *bitmap = get_char_bitmap(codepoint, &width, &height, &advance);
     
-    for (int row = 0; row < CELL_HEIGHT; row++) {
-        uint8_t bits = glyph[row];
-        for (int col = 0; col < CELL_WIDTH; col++) {
-            if (bits & (1 << (7 - col))) {
+    if (!bitmap) {
+        // Fallback: draw a simple box
+        draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
+        draw_rect(x, y, CELL_WIDTH, 1, COLOR_BLACK);
+        draw_rect(x, y + CELL_HEIGHT - 1, CELL_WIDTH, 1, COLOR_BLACK);
+        draw_rect(x, y, 1, CELL_HEIGHT, COLOR_BLACK);
+        draw_rect(x + CELL_WIDTH - 1, y, 1, CELL_HEIGHT, COLOR_BLACK);
+        return;
+    }
+
+    // Clear background first
+    draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_WHITE);
+
+    // Draw character bitmap
+    for (int row = 0; row < height && row < CELL_HEIGHT; row++) {
+        for (int col = 0; col < width && col < CELL_WIDTH; col++) {
+            if (bitmap[row * width + col]) {
                 set_pixel(x + col, y + row, color);
-            } else {
-                set_pixel(x + col, y + row, COLOR_WHITE); // Ensure background is white
             }
         }
     }
@@ -267,6 +279,6 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
         return;
     }
 
-    // Render the Unicode character
+    // Render the Unicode character using system fonts
     draw_unicode_char(x, y, cell->chars[0], COLOR_BLACK);
 }
