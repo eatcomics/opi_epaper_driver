@@ -293,7 +293,7 @@ void vterm_redraw(uint8_t *buffer) {
     
     vterm_buffer = buffer;
     
-    // Clear the framebuffer
+    // Clear the framebuffer to white
     memset(buffer, 0xFF, buffer_size);
     
     VTermScreenCell cell;

@@ -196,17 +196,7 @@ int main (void) {
         n = read(pty_fd, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0';
-            printf("PTY: %zd bytes: ", n);
-            // Print first few characters for debugging
-            for (int i = 0; i < n && i < 20; i++) {
-                if (buf[i] >= 32 && buf[i] <= 126) {
-                    printf("%c", buf[i]);
-                } else {
-                    printf("\\x%02x", (unsigned char)buf[i]);
-                }
-            }
-            if (n > 20) printf("...");
-            printf("\n");
+            printf("PTY: %zd bytes\n", n);
             
             vterm_feed_output(buf, n, image);
             last_input_time = now;
@@ -227,7 +217,7 @@ int main (void) {
             if (now - last_input_time > QUIET_TIMEOUT_MS) {
                 // User has stopped typing for a while - safe to refresh
                 should_refresh = 1;
-                printf("Quiet period detected, refreshing display...\n");
+                printf("Refreshing display...\n");
             } else if (now - last_refresh_time > MIN_REFRESH_INTERVAL_MS * 10) {
                 // Force refresh if too much time has passed (3 seconds)
                 should_refresh = 1;
@@ -251,6 +241,7 @@ int main (void) {
     printf("Exiting main loop, cleaning up...\n");
     
     // Clean up
+    printf("Destroying terminal\n");
     vterm_destroy();
     free(image);
     EPD_7IN5_V2_Sleep();
