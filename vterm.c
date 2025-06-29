@@ -30,6 +30,7 @@ static int damage_pending = 0;
 // Forward declarations
 static void render_cell(int col, int row, const VTermScreenCell *cell);
 static int damage_callback(VTermRect rect, void *user);
+static void output_callback(const char *s, size_t len, void *user);
 
 // Complete key mapping table for Linux input event codes to ASCII
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
@@ -102,7 +103,6 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
 
 // Utility function for libvterm compatibility
 int vterm_unicode_to_utf8(uint32_t codepoint, char *buffer) {
-    printf("LOG: vterm_unicode_to_utf8 called with codepoint=0x%x\n", codepoint);
     if (codepoint < 0x80) {
         buffer[0] = codepoint;
         return 1;
@@ -168,6 +168,11 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     vterm_set_utf8(vterm, 1);
     printf("LOG: UTF-8 mode set\n");
     
+    // CRITICAL: Set up output callback BEFORE getting screen
+    printf("LOG: Setting up output callback\n");
+    vterm_output_set_callback(vterm, output_callback, NULL);
+    printf("LOG: Output callback set\n");
+    
     // Get screen interface
     printf("LOG: Getting screen interface\n");
     screen = vterm_obtain_screen(vterm);
@@ -179,14 +184,14 @@ int vterm_init(int rows, int cols, int pty, uint8_t *buffer) {
     }
     printf("LOG: Screen interface obtained\n");
 
-    // Set up callbacks - CRITICAL: Initialize all fields to NULL first
-    printf("LOG: Setting up callbacks\n");
+    // Set up screen callbacks
+    printf("LOG: Setting up screen callbacks\n");
     VTermScreenCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.damage = damage_callback;
     
     vterm_screen_set_callbacks(screen, &callbacks, screen);
-    printf("LOG: Callbacks set\n");
+    printf("LOG: Screen callbacks set\n");
 
     // Reset and initialize
     printf("LOG: Resetting screen\n");
@@ -263,11 +268,9 @@ void vterm_process_input(uint32_t keycode, int modifiers) {
     printf("LOG: Converting keycode to VTerm key\n");
     VTermKey vterm_key = convert_keycode_to_vtermkey(keycode);
     if (vterm_key != VTERM_KEY_NONE) {
-        printf("Sending special key via libvterm\n");
+        printf("Sending special key via libvterm: %d\n", vterm_key);
         vterm_keyboard_key(vterm, vterm_key, vterm_mods);
-        
-        // REMOVED: vterm_output_read() calls that were causing segfault
-        printf("LOG: Special key processed, skipping output read\n");
+        printf("LOG: Special key processed successfully\n");
         return;
     }
 
@@ -322,15 +325,11 @@ void vterm_redraw(uint8_t *buffer) {
             // Initialize cell to safe defaults
             memset(&cell, 0, sizeof(cell));
             
-            printf("LOG: Getting cell at row=%d, col=%d\n", row, col);
             if (vterm_screen_get_cell(screen, pos, &cell)) {
                 if (cell.chars[0] != 0) {
-                    printf("LOG: Rendering cell with char=0x%x\n", cell.chars[0]);
                     render_cell(col, row, &cell);
                     rendered_chars++;
                 }
-            } else {
-                printf("LOG: Failed to get cell at row=%d, col=%d\n", row, col);
             }
         }
     }
@@ -406,6 +405,21 @@ void draw_char_fallback(int x, int y, char ch, int color) {
 
 // --- Internal Functions ---
 
+static void output_callback(const char *s, size_t len, void *user) {
+    (void)user; // Suppress unused parameter warning
+    
+    printf("LOG: output_callback called with %zu bytes\n", len);
+    
+    if (pty_fd >= 0 && s && len > 0) {
+        ssize_t written = write(pty_fd, s, len);
+        if (written < 0) {
+            printf("LOG: output_callback - write failed\n");
+        } else {
+            printf("LOG: output_callback - wrote %zd bytes to PTY\n", written);
+        }
+    }
+}
+
 static int damage_callback(VTermRect rect, void *user) {
     (void)user; // Suppress unused parameter warning
     
@@ -417,10 +431,7 @@ static int damage_callback(VTermRect rect, void *user) {
 }
 
 static void render_cell(int col, int row, const VTermScreenCell *cell) {
-    printf("LOG: render_cell START - col=%d, row=%d, cell=%p\n", col, row, cell);
-    
     if (!cell || !vterm_buffer) {
-        printf("LOG: render_cell - invalid parameters\n");
         return;
     }
     
@@ -429,7 +440,6 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
 
     // Bounds checking
     if (x < 0 || y < 0 || x >= EPD_7IN5_V2_WIDTH || y >= EPD_7IN5_V2_HEIGHT) {
-        printf("LOG: render_cell - out of bounds x=%d, y=%d\n", x, y);
         return;
     }
 
@@ -445,26 +455,20 @@ static void render_cell(int col, int row, const VTermScreenCell *cell) {
 
     // Draw background
     if (bg_color == COLOR_BLACK) {
-        printf("LOG: Drawing black background\n");
         draw_rect(x, y, CELL_WIDTH, CELL_HEIGHT, COLOR_BLACK);
     }
 
     // Draw character if present
     if (cell->chars[0] != 0) {
-        printf("LOG: Converting unicode to UTF-8\n");
         char ch[5] = {0};
         int len = vterm_unicode_to_utf8(cell->chars[0], ch);
         if (len > 0 && ch[0] >= 0x20 && ch[0] <= 0x7F) {
-            printf("LOG: Drawing character '%c'\n", ch[0]);
             draw_char_fallback(x, y, ch[0], fg_color);
         }
     }
     
     // Draw underline if needed
     if (cell->attrs.underline) {
-        printf("LOG: Drawing underline\n");
         draw_rect(x, y + CELL_HEIGHT - 2, CELL_WIDTH, 1, fg_color);
     }
-    
-    printf("LOG: render_cell COMPLETE\n");
 }
