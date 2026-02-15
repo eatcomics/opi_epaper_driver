@@ -2,7 +2,7 @@
 #define KEYMAP_H
 
 #include <stdint.h>
-#include <vterm.h>
+#include "vterm.h"
 
 VTermKey convert_keycode_to_vtermkey(uint32_t evdev_code);
 
