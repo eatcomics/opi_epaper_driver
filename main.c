@@ -1,4 +1,4 @@
-#include "pty.h"
+//#include "pty.h"
 #include "tsm_term.h"  // Changed from vterm.h
 #include "keyboard.h"
 #include "keymap.h"
@@ -87,69 +87,11 @@ int main (void) {
         DEV_Module_Exit();
         return -1;
     }
-    
-    /*
-    // Set up for PTY
-    printf("Setting up PTY...\n");
-    char *shell = getenv("SHELL");
-    if (!shell) {
-        shell = "/bin/bash";
-    }
-    printf("Using shell: %s\n", shell);
-
-    char *shell_argv[] = {shell, "-i", NULL}; // -i for interactive
-
-    // Use smaller terminal size to avoid crashes
-    int term_cols = 80;  // Standard 80 columns
-    int term_rows = 24;  // Standard 24 rows
-    printf("Terminal size: %dx%d characters\n", term_cols, term_rows);
-    
-    int pty_fd = setup_pty_and_spawn(shell, shell_argv, term_rows, term_cols); 
-
-    if (pty_fd < 0) {
-        fprintf(stderr, "Failed to open PTY!\n");
-        free(image);
-        keyboard_close();
-        DEV_Module_Exit();
-        return -1;
-    }
-    printf("PTY created successfully, fd=%d\n", pty_fd);
-
-    // Init terminal emulator with TSM
-    printf("Initializing TSM terminal emulator...\n");
-    if (tsm_term_init(term_rows, term_cols, pty_fd, image) != 0) {
-        fprintf(stderr, "Failed to initialize TSM terminal!\n");
-        free(image);
-        keyboard_close();
-        close(pty_fd);
-        DEV_Module_Exit();
-        return -1;
-    }
-
-    printf("TSM terminal initialized successfully\n");
-
-    // Set PTY to non-blocking
-    printf("Setting PTY to non-blocking mode...\n");
-    int flags = fcntl(pty_fd, F_GETFL, 0);
-    if (flags == -1) {
-        perror("fcntl F_GETFL");
-    } else {
-        if (fcntl(pty_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-            perror("fcntl F_SETFL");
-        }
-    }
-    */
 
     printf("Entering main loop...\n");
     int run = 1;
     last_input_time = current_millis();
     last_refresh_time = last_input_time;
-    
-    /*
-    // Give the shell a moment to start up and send initial prompt
-    printf("Waiting for shell to initialize...\n");
-    usleep(1000000); // 1 second - give shell more time to start
-    */
     
     // Read any initial output from the shell (like the prompt)
     char buf[8192]; // Large buffer for shell startup
