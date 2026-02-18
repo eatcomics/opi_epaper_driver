@@ -140,6 +140,7 @@ int main (void) {
         }
 
         // Handle text output (read larger chunks)
+        buf[1921] = '\0';
         if (n > 0) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
@@ -187,11 +188,13 @@ int main (void) {
     printf("Exiting main loop, cleaning up...\n");
     
     // Clean up
-    printf("Destroying terminal\n");
+    printf("Deleting image buffer\n");
     tsm_term_destroy();
     free(image);
+    printf("Sleeping screen\n");
     EPD_7IN5_V2_Sleep();
     DEV_Module_Exit();
+    printf("Closing keyboard handle\n");
     keyboard_close();
     
     printf("Cleanup complete\n");
