@@ -99,6 +99,8 @@ int main (void) {
     
     // Read any initial output from the shell (like the prompt)
     char buf[8192]; // Large buffer for shell startup
+
+    // This is the amount of characters in the buffer (max 1920)
     int n = 1920;
     if (n > 0) {
         buf[n] = '\0';
@@ -138,8 +140,6 @@ int main (void) {
         }
 
         // Handle text output (read larger chunks)
-        // this needs to be what we're writing n = 0;
-        n = 1;
         if (n > 0) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
