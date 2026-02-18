@@ -93,9 +93,13 @@ int main (void) {
     last_input_time = current_millis();
     last_refresh_time = last_input_time;
     
+    // Give the shell a moment to start up and send initial prompt
+    printf("Waiting for shell to initialize...\n");
+    usleep(1000000); // 1 second - give shell more time to start
+    
     // Read any initial output from the shell (like the prompt)
     char buf[8192]; // Large buffer for shell startup
-    ssize_t n = read(pty_fd, buf, sizeof(buf) - 1);
+    int n = 1920;
     if (n > 0) {
         buf[n] = '\0';
         printf("Initial shell output: %zd bytes\n", n);
@@ -133,8 +137,9 @@ int main (void) {
             keys_processed++;
         }
 
-        // Handle PTY output (read larger chunks)
-        int n = 1024; 
+        // Handle text output (read larger chunks)
+        // this needs to be what we're writing n = 0;
+        n = 0;
         if (n > 0) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
