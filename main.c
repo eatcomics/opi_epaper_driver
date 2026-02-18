@@ -193,7 +193,7 @@ int main (void) {
     EPD_7IN5_V2_Sleep();
     DEV_Module_Exit();
     keyboard_close();
-    close(pty_fd);
+    //close(pty_fd);
     
     printf("Cleanup complete\n");
     return 0;
