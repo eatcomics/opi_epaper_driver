@@ -88,6 +88,7 @@ int main (void) {
         return -1;
     }
     
+    /*
     // Set up for PTY
     printf("Setting up PTY...\n");
     char *shell = getenv("SHELL");
@@ -137,15 +138,18 @@ int main (void) {
             perror("fcntl F_SETFL");
         }
     }
+    */
 
     printf("Entering main loop...\n");
     int run = 1;
     last_input_time = current_millis();
     last_refresh_time = last_input_time;
     
+    /*
     // Give the shell a moment to start up and send initial prompt
     printf("Waiting for shell to initialize...\n");
     usleep(1000000); // 1 second - give shell more time to start
+    */
     
     // Read any initial output from the shell (like the prompt)
     char buf[8192]; // Large buffer for shell startup
