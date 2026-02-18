@@ -1,4 +1,4 @@
-//#include "pty.h"
+#include "pty.h"
 #include "tsm_term.h"  // Changed from vterm.h
 #include "keyboard.h"
 #include "keymap.h"
@@ -87,7 +87,7 @@ int main (void) {
         DEV_Module_Exit();
         return -1;
     }
-
+    
     printf("Entering main loop...\n");
     int run = 1;
     last_input_time = current_millis();
@@ -134,7 +134,7 @@ int main (void) {
         }
 
         // Handle PTY output (read larger chunks)
-        n = read(pty_fd, buf, sizeof(buf) - 1);
+        int n = 1024; 
         if (n > 0) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
