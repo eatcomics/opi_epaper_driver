@@ -139,7 +139,7 @@ int main (void) {
 
         // Handle text output (read larger chunks)
         // this needs to be what we're writing n = 0;
-        n = 0;
+        n = 1;
         if (n > 0) {
             buf[n] = '\0';
             printf("PTY: %zd bytes\n", n);
@@ -193,7 +193,6 @@ int main (void) {
     EPD_7IN5_V2_Sleep();
     DEV_Module_Exit();
     keyboard_close();
-    //close(pty_fd);
     
     printf("Cleanup complete\n");
     return 0;
