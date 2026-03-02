@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include "timer.h"
 #include "editor.h" // handles buffers, handles modified pieces, handles cursor
 #include "epaper.h" // simplifies actual hardware functions
 #include "input_handler.h" // handles keyboard
@@ -29,6 +30,14 @@ unsigned long current_millis() {
 void signal_handler(int sig) {
     printf("\nReceived signal %d, cleaning up...\n", sig);
     cleanup_requested = 1;
+}
+
+void cleanup_and_exit(int status) {
+    printf("Freeing editor resources\n");
+    epaper_destroy();
+    printf("Closing keyboard handle\n");
+    keyboard_close();
+    exit(status);
 }
 
 int main (void) {
@@ -57,10 +66,15 @@ int main (void) {
     // If new file, create a file handler and set cursor position to 0,0
     if (!editor_init(1)) {
         printf("Unable to initialize editor\n");
+        exit(1);
     }
 
     // Init input layer, grab keyboard, if no keyboard, we'll figure that out
-
+    printf("Initializing keyboard...\n");
+    if (keyboard_init() != 0) {
+        printf("Keyboard init failed.\n");
+        cleanup_and_exit(1);
+    }
     // Create Screen
 
     // Main Loop
@@ -71,5 +85,5 @@ int main (void) {
         // Draw Screen
 
     // Clean Up
-    epaper_destroy();
+    cleanup_and_exit(0);
 }

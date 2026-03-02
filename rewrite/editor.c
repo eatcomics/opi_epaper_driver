@@ -12,8 +12,6 @@
  */
 #include "editor.h"
 #include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
 
 typedef struct {
     uint8_t *data;
@@ -59,7 +57,8 @@ typedef struct {
 
     // Total logical size of document in bytes
     size_t len;
-} Doc; 
+    size_t cur_pos;
+} Doc;
 
 // Forward declare internal functions
 int file_open(const char *filename, File_Buffer *buf);
@@ -69,6 +68,9 @@ static Locate locate_pos(const PieceVec *pv, size_t pos);
 static int ensure_piece_cap(PieceVec *pv, size_t extra);
 static void vec_replace(PieceVec *pv, size_t idx, const Piece *repl, size_t k);
 int doc_insert_piece(PieceVec *pv, size_t pos, Piece ins);
+static int add_reserve(Add_Buf *a, size_t extra);
+static int add_append(Add_Buf *a, const uint8_t *bytes, size_t len, size_t *out_off);
+
 
 // Define the document
 Doc *doc;
@@ -102,6 +104,8 @@ int editor_init(int new_file_flag) {
     doc->piece_cap = 0;
 
     doc->len = doc->original_buf.size;
+
+    doc->cur_pos = 0;
     
     return 0;
 }
@@ -111,6 +115,19 @@ void editor_destroy () {
     free(doc->add.data);
     free(doc->pieces);
     free(doc);
+}
+
+int doc_insert_bytes(const uint8_t *bytes, size_t len) {
+    size_t add_off;
+    if (add_append(&doc->add, bytes, len, &add_off) != 0) return -1;
+
+    Piece ins = { .src = SRC_ADD, .off = add_off, .len = len};
+
+    if (doc_insert_piece(doc->pieces, doc->cur_pos, ins) != 0) return -1;
+
+    doc->len += len;
+    doc->cur_pos += len;
+    return 0;
 }
 
 
@@ -198,7 +215,7 @@ static void vec_replace(PieceVec *pv, size_t idx, const Piece *repl, size_t k) {
 }
 
 int doc_insert_piece(PieceVec *pv, size_t pos, Piece ins) {
-    // pos can bo 0 to doc_len
+    // pos can be 0 to doc_len
     Locate loc = locate_pos(pv, pos);
 
     // Inserting at end? Just append
@@ -230,3 +247,30 @@ int doc_insert_piece(PieceVec *pv, size_t pos, Piece ins) {
     vec_replace(pv, loc.index, out, k);
     return 0;
 }
+
+static int add_reserve(Add_Buf *a, size_t extra) {
+    if (a->used + extra <= a->cap) return 0;
+
+    size_t new_cap = a->cap ? a->cap : 4096;
+    while (new_cap < a->used + extra) new_cap *= 2;
+
+    uint8_t *p = (uint8_t *)realloc(a->data, new_cap);
+    if (!p) return -1;
+
+    a->data = p;
+    a->cap = new_cap;
+    return 0;
+}
+
+static int add_append(Add_Buf *a, const uint8_t *bytes, size_t len, size_t *out_off) {
+    if (len == 0) { *out_off = a->used; return 0; }
+    if (add_reserve(a, len) != 0) return -1;
+
+    size_t off = a->used;
+    memcpy(a->data + a->used, bytes, len);
+    a->used += len;
+
+    *out_off = off;
+    return 0;
+}
+
