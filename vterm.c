@@ -12,6 +12,8 @@
 #include <signal.h>
 #include <setjmp.h>
 
+// This here file needs to be modified to just be like "screen" or "virtfile" something more prescient 
+
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
 

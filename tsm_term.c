@@ -9,6 +9,8 @@
 #include <ctype.h>
 #include <linux/input-event-codes.h>
 
+// This file needs to be converted to be a virtual notepad, and read/write to text files
+
 #define CELL_WIDTH 8
 #define CELL_HEIGHT 16
 #define COLOR_WHITE 0
