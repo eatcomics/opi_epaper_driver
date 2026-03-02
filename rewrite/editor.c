@@ -1,3 +1,15 @@
+/*
+  For the editor I'm using an immutable original buffer, an Add Buffer, and a Piece Table to track changes. At a later date it will support
+  ctrl+zi/y for undo/redo
+
+  Currently, a file can either be loaded from disk, or a new file can be created.
+
+  The input_handler will buffer input and send it to here to be added to the document. The input_handler can also control the view via the screen system
+
+  The screen system will request a subset of the current document for viewing, depending on what part of the file is currently in view
+
+  This system will also handle the cursor position and handle where text is inserted/removed
+ */
 #include "editor.h"
 #include <stdio.h>
 #include <stdint.h>
