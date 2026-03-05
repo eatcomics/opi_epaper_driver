@@ -5,9 +5,7 @@
 #include <poll.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <signal.h>
-#include "timer.h"
 #include "editor.h" // handles buffers, handles modified pieces, handles cursor
 #include "epaper.h" // simplifies actual hardware functions
 #include "input_handler.h" // handles keyboard
@@ -35,8 +33,14 @@ void signal_handler(int sig) {
 void cleanup_and_exit(int status) {
     printf("Freeing editor resources\n");
     epaper_destroy();
+    printf("Freeing editor resources\n");
+    editor_destroy();
     printf("Closing keyboard handle\n");
     keyboard_close();
+    printf("Freeing screen resources\n");
+    screen_destroy();
+
+    if (status != 0) printf("Exited with error: %d\n", status);
     exit(status);
 }
 
@@ -64,9 +68,9 @@ int main (void) {
 
     // If file opened - create a file handler and load the file contents, and set cursor 0,0
     // If new file, create a file handler and set cursor position to 0,0
-    if (!editor_init(1)) {
+    if (editor_init(1) != 0) {
         printf("Unable to initialize editor\n");
-        exit(1);
+        cleanup_and_exit(1);
     }
 
     // Init input layer, grab keyboard, if no keyboard, we'll figure that out
@@ -75,14 +79,25 @@ int main (void) {
         printf("Keyboard init failed.\n");
         cleanup_and_exit(1);
     }
+
     // Create Screen
+    if (screen_init() != 0) {
+        printf("Error initializing screen\n");
+        cleanup_and_exit(1);
+    }
 
-    // Main Loop
-
-        // Check for input
+    int run = 1;
+    size_t cursor;
+    uint8_t *doc;
+    
+    // Main Editor Loop
+    while (run && !cleanup_requested) {
+        // Check for input (and if enough input, set screen damage)
         // Handle input in file
+        cursor = get_cursor_pos();
         // Update Screen
-        // Draw Screen
+        handle_screen(doc, cursor); // currently trying to convert the input blob to a dynamic array that will be easier for the screen to draw
+    }
 
     // Clean Up
     cleanup_and_exit(0);

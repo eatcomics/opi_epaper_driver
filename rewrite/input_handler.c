@@ -24,6 +24,7 @@ typedef struct {
 } ConvertedKeyBuffer;
 
 KeyBuffer input;
+ConvertedKeyBuffer conv_buf;
 
 static int is_keyboard_device(struct udev_device *dev) {
     const char *kbd = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
@@ -83,6 +84,9 @@ void keyboard_close(void) {
         close(kb_fd);
         kb_fd = -1;
     }
+
+    free(conv_buf);
+    free(input);
 }
 
 int read_key_event(uint32_t *keycode, int *modifiers) {
@@ -109,29 +113,33 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
     return 0;
 }
 
+uint8_t handle_keys() {
+    check_keys();
+    
+    return   
+}
+
 int check_keys() {
     uint32_t keycode;
     //We'll read a few times, just in case multiple keys are hit at once
     for (int i = 0; i < 3; i++) {
         read_key_event(&keycode, &modifiers);
         if (keycode != NULL) {
-            input.key_buf[len+1] = keycode;
             input.len += 1;
+            input.key_buf[len-1] = keycode;
         }
     }
 
     if (input.len >= MAX_KEY_BUFFER) {
-        ConvertedKeyBuffer buf;
-        buf.key_buf = malloc((size_t)10);
-        buf.len = 0;
+        conv_buf.key_buf = malloc((size_t)10);
+        conv_buf.len = 0;
         for (int i = 0; i < input.len; i++) {
-            buf.key_buf[i] = keycode_to_ascii(input.key_buf[i], 0); 
-            buf.len += 1;
+            conv_buf.key_buf[i] = keycode_to_ascii(input.key_buf[i], 0); 
+            conv_buf.len += 1;
         }
+        doc_insert_bytes(conv_buf.key_buf, buf.len);
         input.len = 0;
-        doc_insert_bytes(buf.key_buf, buf.len);
-        free(buf.key_buf);
-        free(buf);
+        conv_buf.len = 0;
     }
 }
 

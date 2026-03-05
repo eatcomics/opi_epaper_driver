@@ -8,5 +8,8 @@ int editor_init(int new_file_flag);
 void editor_destroy();
 
 int doc_insert_bytes(const uint8_t *bytes, size_t len);
+size_t doc_build_slice(size_t start_pos, uint8_t *out, size_t out_cap);
+
+size_t get_cursor_pos();
 
 #endif

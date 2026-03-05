@@ -11,6 +11,7 @@
   This system will also handle the cursor position and handle where text is inserted/removed
  */
 #include "editor.h"
+#include "settings.h"
 #include <stdio.h>
 
 typedef struct {
@@ -51,12 +52,12 @@ typedef struct {
     Add_Buf add;
 
     // Current state of document is defined by this piece list
-    PieceVec *pieces;
-    size_t piece_count;
-    size_t piece_cap;
+    PieceVec pieces;
 
     // Total logical size of document in bytes
     size_t len;
+
+    // Where in the document the cursor currently is
     size_t cur_pos;
 } Doc;
 
@@ -99,9 +100,8 @@ int editor_init(int new_file_flag) {
     doc->add.used = 0;
     doc->add.cap = 0;
 
-    doc->pieces = NULL;
-    doc->piece_count = 0;
-    doc->piece_cap = 0;
+    doc->pieces.v = NULL;
+    doc->pieces.cap = 0;
 
     doc->len = doc->original_buf.size;
 
@@ -113,7 +113,7 @@ int editor_init(int new_file_flag) {
 void editor_destroy () {
     free(doc->original_buf.data);
     free(doc->add.data);
-    free(doc->pieces);
+    free(doc->pieces.v);
     free(doc);
 }
 
@@ -130,13 +130,10 @@ int doc_insert_bytes(const uint8_t *bytes, size_t len) {
     return 0;
 }
 
+size_t get_cursor_pos() {
+    return doc->cur_pos;
+} 
 
-// This is how you get the portion of the file the screen is currently displaying (24 rows by 80 columns)
-// I think ifit's scrolled right, we may let the screen handle that? Or we'll just force wrapping for now
-// This literally just returns a blob of characters
-uint8_t * get_file_in_view(uint8_t *buf, int scroll_x, int scroll_y) {
-    return NULL; 
-}
 
 // Internal Functions
 int file_open(const char *filename, File_Buffer *buf) {
@@ -201,13 +198,14 @@ static int ensure_piece_cap(PieceVec *pv, size_t extra) {
 
 // replace pv->v[idx] with repl[0..k-1]
 static void vec_replace(PieceVec *pv, size_t idx, const Piece *repl, size_t k) {
-    // Remove 1, insert k => net change = (k - 1)
-    if (k > 1) {
-        memmove(&pv->v[idx + k], &pv->v[idx + 1], (pv->n - idx -1) * sizeof(Piece));
-    } else if (k == 0) {
-        memmove(&pv->v[idx], &pv->v[idx + 1], (pv->n - idx - 1) * sizeof(Piece));
-    } else { // k == 1: overwrite
-        // nothing to move
+    size_t tail = pv->n - idx -1;
+    if (tail > 0) {
+        // Remove 1, insert k => net change = (k - 1)
+        if (k > 1) {
+            memmove(&pv->v[idx + k], &pv->v[idx + 1], (pv->n - idx -1) * sizeof(Piece));
+        } else if (k == 0) {
+            memmove(&pv->v[idx], &pv->v[idx + 1], (pv->n - idx - 1) * sizeof(Piece));
+        }
     }
 
     for (size_t i = 0; i < k; i++) pv->v[idx + 1] = repl[i];
@@ -274,3 +272,43 @@ static int add_append(Add_Buf *a, const uint8_t *bytes, size_t len, size_t *out_
     return 0;
 }
 
+static const uint8_t *piece_base_ptr(const Doc *doc, PieceSrc src) {
+    return (src == SRC_ORIGINAL) ? doc->original_buf.data : doc->add.data;
+}
+
+// Copies up to out_cap bytes from doc starting at start_pos.
+// Returns bytes copied.
+size_t doc_build_slice(size_t start_pos, uint8_t *out, size_t out_cap)
+{
+    if (!doc || !out || out_cap == 0) return 0;
+    if (start_pos >= doc->len) return 0;
+
+    size_t out_n = 0;
+    size_t logical_cur = 0;
+
+    for (size_t i = 0; i < doc->pieces.n && out_n < out_cap; i++) {
+        Piece p = doc->pieces.v[i];
+        size_t piece_end = logical_cur + p.len;
+
+        // Skip pieces before start_pos
+        if (piece_end <= start_pos) {
+            logical_cur = piece_end;
+            continue;
+        }
+
+        // Start offset within this piece
+        size_t in_piece_off = (start_pos > logical_cur) ? (start_pos - logical_cur) : 0;
+        size_t available = p.len - in_piece_off;
+        size_t take = out_cap - out_n;
+        if (take > available) take = available;
+
+        const uint8_t *base = piece_base_ptr(doc, p.src);
+        memcpy(out + out_n, base + p.off + in_piece_off, take);
+
+        out_n += take;
+        start_pos += take;
+        logical_cur = piece_end;
+    }
+
+    return out_n;
+}
