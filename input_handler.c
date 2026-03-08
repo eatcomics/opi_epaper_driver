@@ -22,8 +22,8 @@ typedef struct {
     size_t len;
 } ConvertedKeyBuffer;
 
-KeyBuffer input;
-ConvertedKeyBuffer conv_buf;
+KeyBuffer *input;
+ConvertedKeyBuffer *conv_buf;
 
 static int is_keyboard_device(struct udev_device *dev) {
     const char *kbd = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
@@ -124,7 +124,7 @@ size_t check_keys(uint8_t *buf) {
         read_key_event(&keycode, &modifiers);
         if (keycode != NULL && input.len != 0) {
             input.len += 1;
-            input.key_buf[len-1] = keycode;
+            input.key_buf[input.len-1] = keycode;
         }
     }
 
