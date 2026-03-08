@@ -34,9 +34,31 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed);
 
 int keyboard_init(void) {
     // Init the key input buffer
-    input->key_buf = malloc((size_t)10);
+    input = malloc(sizeof(KeyBuffer));
+    if (!input) {
+        perror("malloc input");
+        return -1;
+    }
+
+    input->key_buf = malloc(10 * sizeof(uint32_t));
+    if (!input->key_buf) {
+        perror("malloc input->key_buf");
+        free(input);
+        input = NULL;
+        return -1;
+    }
+    
     input->len = 0;
 
+    struct udev *udev = udev_new();
+    if (!udev) {
+        fprintf(stderr, "keyboard_init: failed to create udev\n");
+        free(input->key_buf);
+        free(input);
+        input = NULL;
+        return -1;
+    }
+    
     struct udev *udev = udev_new();
     if (!udev) {
         fprintf(stderr, "keyboard_init: failed to create udev\n");
