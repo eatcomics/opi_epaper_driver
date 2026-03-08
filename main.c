@@ -81,6 +81,7 @@ int main (void) {
     }
 
     // Create Screen
+    printf("Initializing screen...\n");
     if (screen_init() != 0) {
         printf("Error initializing screen\n");
         cleanup_and_exit(1);
@@ -94,10 +95,11 @@ int main (void) {
     uint8_t doc_len;
     
     // Main Editor Loop
-    printf("Entering main loops:\n");
+    printf("Entering main loop...\n");
     while (run && !cleanup_requested) {
         // Check for input (and if enough input, set screen damage)
-        key_len = check_keys(keys);
+        /* You're supposed to fix this. Keycode isn't initialized... wtf you doin? */
+        key_len = check_keys(keys); 
 
         // Handle input in file
         doc_insert_bytes(keys, key_len);

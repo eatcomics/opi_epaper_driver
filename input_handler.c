@@ -126,6 +126,7 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 }
 
 size_t check_keys(uint8_t *buf) {
+    // this isn't initialized and I don't know what it's supposed to be... ruh roh
     uint32_t keycode;
 
     if (input->len >= MAX_KEY_BUFFER) {
