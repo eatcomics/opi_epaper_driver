@@ -94,6 +94,7 @@ int main (void) {
     uint8_t doc_len;
     
     // Main Editor Loop
+    printf("Entering main loops:\n");
     while (run && !cleanup_requested) {
         // Check for input (and if enough input, set screen damage)
         key_len = check_keys(keys);
