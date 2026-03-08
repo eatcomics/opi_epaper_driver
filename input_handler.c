@@ -49,15 +49,6 @@ int keyboard_init(void) {
     }
     
     input->len = 0;
-
-    struct udev *udev = udev_new();
-    if (!udev) {
-        fprintf(stderr, "keyboard_init: failed to create udev\n");
-        free(input->key_buf);
-        free(input);
-        input = NULL;
-        return -1;
-    }
     
     struct udev *udev = udev_new();
     if (!udev) {
