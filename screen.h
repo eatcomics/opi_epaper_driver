@@ -7,6 +7,6 @@
 int screen_init();
 void screen_destroy();
 
-void handle_screen(uint8_t *doc, size_t doc_len, size_t cursor_pos);
+int handle_screen(uint8_t *doc, size_t doc_len, size_t cursor_pos);
 
 #endif 
