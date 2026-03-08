@@ -35,7 +35,8 @@ static struct {
 // Forward Declarations
 static void set_pixel(int x, int y, int color);
 static void draw_char(int x, int y, char ch, int fg_color, int bg_color, uint8_t attrs);
-static void screen_render(void);
+static void screen_render();
+void map_doc_coords(uint8_t *doc, size_t len, size_t cursor);
 
 void screen_full_draw();
 void screen_partial_draw(uint8_t *buffer, int start_x, int start_y, int end_x, int end_y);
@@ -64,10 +65,11 @@ int screen_init() {
     return 0;
 }
 
-int handle_screen(uint8_t *doc, int len, size_t cursor_pos) { 
+int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) { 
     // if we need to draw, do it
     if (damage_pending != 0) {
         // take doc and process it into something the screen functions can use
+        map_doc_coords(doc, len, cursor_pos);
         screen_full_draw(); 
         damage_pending = 0; // reset the damange pending, no need to draw now
     }
@@ -139,7 +141,7 @@ static void draw_char(int x, int y, char ch, int fg_color, int bg_color, uint8_t
     }
 }
 
-static void screen_render(void) {
+static void screen_render() {
     if (!framebuffer) return;
     
     // Clear framebuffer to white
@@ -167,15 +169,30 @@ static void screen_render(void) {
     printf("Rendered %d characters\n", rendered_chars);
 }
 
-int convert_doc_to_dyn_array(uint8_t *doc, size_t doc_len) {
-    for (int i = 0; i < doc_len; i++) {
-        
+void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
+    int row, col = 0;
+    
+    for (size_t i = 0; i < doc_len; i++) {
+        if (i <= 0) {
+            break; 
+        } else if (i > 1920) {
+            break;
+        } else {
+            if (i % 80 == 0) {
+                //new line
+                row++;
+                col++;
+            }
+        }
+
+        screen_buffer[row][col].ch = doc[i];
     } 
 }
 
 void screen_full_draw() {
     if (framebuffer) {
         printf("Flushing display...\n");
+        screen_render();
         EPD_7IN5_V2_Display(framebuffer);
     }
 }

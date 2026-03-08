@@ -1,9 +1,3 @@
-#include "pty.h"
-#include "tsm_term.h"  // Changed from vterm.h
-#include "keyboard.h"
-#include "keymap.h"
-#include "hwconfig.h"
-#include "EPD_7in5_V2.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,18 +5,20 @@
 #include <poll.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <signal.h>
+#include "editor.h" // handles buffers, handles modified pieces, handles cursor
+#include "epaper.h" // simplifies actual hardware functions
+#include "input_handler.h" // handles keyboard
 
-unsigned long last_input_time = 0;
-unsigned long last_refresh_time = 0;
-#define QUIET_TIMEOUT_MS 1000    // Wait 1 second after last input before refreshing
-#define MIN_REFRESH_INTERVAL_MS 500  // Minimum time between refreshes
-#define FORCE_REFRESH_TIMEOUT_MS 3000  // Force refresh after 3 seconds
+/* Gets viewable part of the current text file from editor, calls draw funcs in epaper.h. Will be in charge of screen clears and screen sleep logic maybe */
+#include "screen.h"
 
-// Global cleanup flag
+
+
+// Global Cleanup/Exit
 static volatile int cleanup_requested = 0;
 
+// Global Time handling (this can probably go in a separate file later)
 unsigned long current_millis() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -34,169 +30,82 @@ void signal_handler(int sig) {
     cleanup_requested = 1;
 }
 
-// Globals
-int screen_width = 800;
-int screen_height = 480;
+void cleanup_and_exit(int status) {
+    printf("Freeing editor resources\n");
+    epaper_destroy();
+    printf("Freeing editor resources\n");
+    editor_destroy();
+    printf("Closing keyboard handle\n");
+    keyboard_close();
+    printf("Freeing screen resources\n");
+    screen_destroy();
 
-// MAIN!
+    if (status != 0) printf("Exited with error: %d\n", status);
+    exit(status);
+}
+
 int main (void) {
     // Set up signal handlers for clean exit
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    printf("Starting E-ink Terminal with TSM...\n");
+    // Init e-ink display
+    epaper_init();
 
-    // Set up the E-Ink Display
-    printf("Initializing hardware...\n");
-    if (DEV_Module_Init() != 0) {
-        printf("Hardware init failed.\n");
-        return -1;
-    }
-
-    // Init the e-ink display
-    printf("Initializing E-ink display...\n");
-    if (EPD_7IN5_V2_Init() != 0) {
-        printf("E-ink display init failed.\n");
-        DEV_Module_Exit();
-        return -1;
-    }
+    // Clear the display for use
+    epaper_clear();
     
-    // Clear the display
-    printf("Clearing display...\n");
-    EPD_7IN5_V2_Clear();
+    // Menu
+        // New File
+        // Open File
+        // (The below can wait)
+        // Bluetooth (If no keyboard this should start automatically?)
+        // Wifi 
+        // System Settings
 
-    // Allocate framebuffer
-    printf("Allocating framebuffer...\n");
-    size_t buffer_size = (screen_width * screen_height / 8);
-    uint8_t *image = (uint8_t *)malloc(buffer_size);
-    if (!image) {
-        printf("Failed to allocate memory for framebuffer\n");
-        DEV_Module_Exit();
-        return -1;
+    // Load settings file (screen lock, idle time before draw, redraw settings)
+    // Close settings file after settings set
+
+    // If file opened - create a file handler and load the file contents, and set cursor 0,0
+    // If new file, create a file handler and set cursor position to 0,0
+    if (editor_init(1) != 0) {
+        printf("Unable to initialize editor\n");
+        cleanup_and_exit(1);
     }
 
-    // Initialize buffer to white (all bits set to 1)
-    memset(image, 0xFF, buffer_size);
-    printf("Framebuffer allocated: %zu bytes\n", buffer_size);
-
-    // Configure Keyboard input
+    // Init input layer, grab keyboard, if no keyboard, we'll figure that out
     printf("Initializing keyboard...\n");
     if (keyboard_init() != 0) {
         printf("Keyboard init failed.\n");
-        free(image);
-        DEV_Module_Exit();
-        return -1;
+        cleanup_and_exit(1);
     }
-    
-    printf("Entering main loop...\n");
+
+    // Create Screen
+    if (screen_init() != 0) {
+        printf("Error initializing screen\n");
+        cleanup_and_exit(1);
+    }
+
     int run = 1;
-    last_input_time = current_millis();
-    last_refresh_time = last_input_time;
+    uint8_t *keys;
+    size_t key_len;
+    size_t cursor;
+    uint8_t *doc;
+    uint8_t doc_len;
     
-    // Give the shell a moment to start up and send initial prompt
-    printf("Waiting for shell to initialize...\n");
-    usleep(1000000); // 1 second - give shell more time to start
-    
-    // Read any initial output from the shell (like the prompt)
-    char buf[8192]; // Large buffer for shell startup
-
-    // This is the amount of characters in the buffer (max 1920)
-    int n = 1920;
-    if (n > 0) {
-        buf[n] = '\0';
-        printf("Initial shell output: %zd bytes\n", n);
-        tsm_term_feed_output(buf, n, image);
-        last_input_time = current_millis();
-    } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        printf("Error reading initial output: %s\n", strerror(errno));
-    } else {
-        printf("No initial shell output received\n");
-    }
-    
-    // Do an initial redraw
-    printf("Performing initial redraw...\n");
-    if (image) {
-        tsm_term_redraw(image);
-        last_refresh_time = current_millis();
-    }
-    
-    // Main event loop with proper buffering
+    // Main Editor Loop
     while (run && !cleanup_requested) {
-        int activity = 0;
-        unsigned long now = current_millis();
-        
-        // Handle keyboard input (collect multiple keys if typed quickly)
-        uint32_t keycode;
-        int modifiers;
-        int keys_processed = 0;
-        
-        // Process up to 5 keys in one batch to handle fast typing
-        while (keys_processed < 5 && read_key_event(&keycode, &modifiers)) {
-            printf("Key: %u (mods=%d)\n", keycode, modifiers);
-            tsm_term_process_input(keycode, modifiers);
-            last_input_time = now;
-            activity = 1;
-            keys_processed++;
-        }
+        // Check for input (and if enough input, set screen damage)
+        key_len = check_keys(keys);
 
-        // Handle text output (read larger chunks)
-        buf[1921] = '\0';
-        if (n > 0) {
-            buf[n] = '\0';
-            printf("PTY: %zd bytes\n", n);
-            
-            tsm_term_feed_output(buf, n, image);
-            last_input_time = now;
-            activity = 1;
-        } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            fprintf(stderr, "PTY read error: %s\n", strerror(errno));
-            break;
-        } else if (n == 0) {
-            printf("PTY closed (EOF)\n");
-            break;
-        }
+        // Handle input in file
+        doc_insert_bytes(keys, key_len);
+        cursor = get_cursor_pos();
 
-        // Smart refresh logic - only refresh after user stops typing/activity
-        int should_refresh = 0;
-        
-        if (tsm_term_has_pending_damage()) {
-            // There's pending damage that needs to be displayed
-            if (now - last_input_time > QUIET_TIMEOUT_MS) {
-                // User has stopped typing for a while - safe to refresh
-                should_refresh = 1;
-                printf("Refreshing display after quiet period...\n");
-            } else if (now - last_refresh_time > FORCE_REFRESH_TIMEOUT_MS) {
-                // Force refresh if too much time has passed
-                should_refresh = 1;
-                printf("Force refresh due to timeout...\n");
-            }
-        }
-        
-        if (should_refresh && image) {
-            tsm_term_redraw(image);
-            last_refresh_time = now;
-        }
-
-        // Shorter sleep for better responsiveness during typing
-        if (activity) {
-            usleep(2000);  // 2ms when there's activity
-        } else {
-            usleep(10000); // 10ms when idle
-        }
+        // Update Screen
+        handle_screen(doc, doc_len, cursor);
     }
-    
-    printf("Exiting main loop, cleaning up...\n");
-    
-    // Clean up
-    printf("Deleting image buffer\n");
-    tsm_term_destroy();
-    free(image);
-    printf("Sleeping screen\n");
-    EPD_7IN5_V2_Sleep();
-    DEV_Module_Exit();
-    printf("Closing keyboard handle\n");
-    keyboard_close();
-    
-    printf("Cleanup complete\n");
-    return 0;
+
+    // Clean Up
+    cleanup_and_exit(0);
 }

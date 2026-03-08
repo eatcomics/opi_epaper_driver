@@ -6,7 +6,6 @@
 #include <libudev.h>
 #include <linux/input-event-codes.h>
 #include "settings.h"
-#include "editor.h"
 
 static int kb_fd = -1;
 unsigned long last_input_time; 
@@ -15,12 +14,12 @@ int modifiers;
 
 typedef struct {
     uint32_t *key_buf;
-    int len;
+    size_t len;
 } KeyBuffer;
 
 typedef struct {
     uint8_t *key_buf;
-    int len;
+    size_t len;
 } ConvertedKeyBuffer;
 
 KeyBuffer input;
@@ -113,18 +112,17 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
     return 0;
 }
 
-uint8_t handle_keys() {
-    check_keys();
-    
-    return   
-}
-
-int check_keys() {
+size_t check_keys(uint8_t *buf) {
     uint32_t keycode;
+
+    if (input.len >= MAX_KEY_BUFFER) {
+        input.len = 0;
+    }
+    
     //We'll read a few times, just in case multiple keys are hit at once
     for (int i = 0; i < 3; i++) {
         read_key_event(&keycode, &modifiers);
-        if (keycode != NULL) {
+        if (keycode != NULL && input.len != 0) {
             input.len += 1;
             input.key_buf[len-1] = keycode;
         }
@@ -133,14 +131,13 @@ int check_keys() {
     if (input.len >= MAX_KEY_BUFFER) {
         conv_buf.key_buf = malloc((size_t)10);
         conv_buf.len = 0;
-        for (int i = 0; i < input.len; i++) {
+        for (size_t i = 0; i < input.len; i++) {
             conv_buf.key_buf[i] = keycode_to_ascii(input.key_buf[i], 0); 
             conv_buf.len += 1;
         }
-        doc_insert_bytes(conv_buf.key_buf, buf.len);
-        input.len = 0;
-        conv_buf.len = 0;
     }
+
+    return conv_buf.len;
 }
 
 // Complete key mapping table for Linux input event codes to ASCII
