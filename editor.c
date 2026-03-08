@@ -13,6 +13,7 @@
 #include "editor.h"
 #include "settings.h"
 #include <stdio.h>
+#include <string.h>
 
 typedef struct {
     uint8_t *data;
@@ -123,7 +124,7 @@ int doc_insert_bytes(const uint8_t *bytes, size_t len) {
 
     Piece ins = { .src = SRC_ADD, .off = add_off, .len = len};
 
-    if (doc_insert_piece(doc->pieces, doc->cur_pos, ins) != 0) return -1;
+    if (doc_insert_piece(&doc->pieces, doc->cur_pos, ins) != 0) return -1;
 
     doc->len += len;
     doc->cur_pos += len;
@@ -219,7 +220,7 @@ int doc_insert_piece(PieceVec *pv, size_t pos, Piece ins) {
     // Inserting at end? Just append
     if (loc.index == pv->n) {
         if (ensure_piece_cap(pv, 1) != 0) return -1;
-        pv-v[pv->n++] = ins;
+        pv->v[pv->n++] = ins;
         return 0;
     }
 
