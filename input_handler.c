@@ -34,8 +34,8 @@ static char keycode_to_ascii(uint32_t keycode, int shift_pressed);
 
 int keyboard_init(void) {
     // Init the key input buffer
-    input.key_buf = malloc((size_t)10);
-    input.len = 0;
+    input->key_buf = malloc((size_t)10);
+    input->len = 0;
 
     struct udev *udev = udev_new();
     if (!udev) {
@@ -115,29 +115,29 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 size_t check_keys(uint8_t *buf) {
     uint32_t keycode;
 
-    if (input.len >= MAX_KEY_BUFFER) {
-        input.len = 0;
+    if (input->len >= MAX_KEY_BUFFER) {
+        input->len = 0;
     }
     
     //We'll read a few times, just in case multiple keys are hit at once
     for (int i = 0; i < 3; i++) {
         read_key_event(&keycode, &modifiers);
-        if (keycode != NULL && input.len != 0) {
-            input.len += 1;
-            input.key_buf[input.len-1] = keycode;
+        if (keycode != NULL && input->len != 0) {
+            input->len += 1;
+            input->key_buf[input.len-1] = keycode;
         }
     }
 
-    if (input.len >= MAX_KEY_BUFFER) {
-        conv_buf.key_buf = malloc((size_t)10);
-        conv_buf.len = 0;
-        for (size_t i = 0; i < input.len; i++) {
-            conv_buf.key_buf[i] = keycode_to_ascii(input.key_buf[i], 0); 
-            conv_buf.len += 1;
+    if (input->len >= MAX_KEY_BUFFER) {
+        conv_buf->key_buf = malloc((size_t)10);
+        conv_buf->len = 0;
+        for (size_t i = 0; i < input->len; i++) {
+            conv_buf->key_buf[i] = keycode_to_ascii(input->key_buf[i], 0); 
+            conv_buf->len += 1;
         }
     }
 
-    return conv_buf.len;
+    return conv_buf->len;
 }
 
 // Complete key mapping table for Linux input event codes to ASCII
