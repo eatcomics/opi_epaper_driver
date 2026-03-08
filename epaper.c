@@ -5,7 +5,7 @@
 
 // Constructor/Destructor
 int epaper_init(){
-    if (DEV_Module_init() != 0) {
+    if (DEV_Module_Init() != 0) {
         printf("Hardware init failed.\n");
         return -1;
     }
