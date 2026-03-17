@@ -127,7 +127,7 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 
 size_t check_keys(uint8_t *buf) {
     // this isn't initialized and I don't know what it's supposed to be... ruh roh
-    uint32_t keycode = NULL; // does making it NULL work?
+    uint32_t *keycode = NULL; // does making it NULL work?
 
 
     printf("Checking keys...\n");
@@ -137,13 +137,13 @@ size_t check_keys(uint8_t *buf) {
     
     //We'll read a few times, just in case multiple keys are hit at once
     printf("Reading keys...\n");
-    // for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; i++) {
         read_key_event(&keycode, &modifiers);
         if (keycode != NULL && input->len != 0) {
             input->len += 1;
             input->key_buf[input->len-1] = keycode;
         }
-        // }
+    }
 
     if (input->len >= MAX_KEY_BUFFER) {
         printf("Max buffer achieved, converting to uint8_t...\n");
