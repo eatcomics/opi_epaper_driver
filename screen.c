@@ -193,6 +193,7 @@ void screen_full_draw() {
     if (framebuffer) {
         printf("Flushing display...\n");
         screen_render();
+        printf("Screen rendered. Sending to display...\n");
         EPD_7IN5_V2_Display(framebuffer);
     }
 }
