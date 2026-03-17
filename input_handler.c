@@ -10,7 +10,7 @@
 static int kb_fd = -1;
 unsigned long last_input_time; 
 int inputs_since_draw = 0;
-int modifiers;
+int modifiers = 0;
 
 typedef struct {
     uint32_t *key_buf;
@@ -137,6 +137,7 @@ size_t check_keys(uint8_t *buf) {
     
     //We'll read a few times, just in case multiple keys are hit at once
     printf("Reading keys...\n");
+    // THIS IS SEGFAULTING BUB
     for (int i = 0; i < 3; i++) {
         read_key_event(&keycode, &modifiers);
         if (keycode != NULL && input->len != 0) {
