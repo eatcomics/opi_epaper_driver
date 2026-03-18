@@ -125,7 +125,6 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 
 size_t check_keys(uint8_t *buf) {
     uint32_t keycode = 0;
-    ConvertedKeyBuffer *conv_buf;
     size_t len = 0;
 
     printf("Checking keys...\n");
@@ -148,7 +147,9 @@ size_t check_keys(uint8_t *buf) {
     }
 
     if (input->len > 0) {
+        ConvertedKeyBuffer *conv_buf;
         conv_buf->key_buf = malloc(input->len);
+
         if (conv_buf->key_buf == NULL) {
             fprintf(stderr, "malloc failed\n");
             return 0;
@@ -161,11 +162,13 @@ size_t check_keys(uint8_t *buf) {
         }
     }
 
-    printf("Returning buffer length: %zu...\n", conv_buf->len);
-    buf = conv_buf->key_buf;
-    len = conv_buf->len;
+    if (conv_buf != NULL) {
+        printf("Returning buffer length: %zu...\n", conv_buf->len);
+        buf = conv_buf->key_buf;
+        len = conv_buf->len;
 
-    free(conv_buf);
+        free(conv_buf);
+    }
     return len;
 }
 
