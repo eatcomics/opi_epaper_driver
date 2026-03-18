@@ -106,10 +106,9 @@ int main (void) {
             doc_insert_bytes(&key, 1);
             cursor = get_cursor_pos();
             */
-            doc_len = doc_temp_insert(&key, doc);
-
+            doc[doc_len] = key;
             doc_len++;
-            printf("Doc = %s", doc);
+            printf("Doc = %s\n", doc);
         }
 
         cursor = doc_temp_cur();
