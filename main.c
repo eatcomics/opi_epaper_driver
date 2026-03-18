@@ -101,15 +101,13 @@ int main (void) {
         key = check_keys(&key); 
 
         // Handle input in file
-        if (key != 0 && key) {
-            printf("got a key boss: %c...\n");
+        if (key != 0)  {
             /*
             doc_insert_bytes(&key, 1);
             cursor = get_cursor_pos();
             */
             doc_len = doc_temp_insert(&key, doc);
 
-            doc[doc_len+1] = '\0';
             doc_len++;
             printf("Doc = %s", doc);
         }

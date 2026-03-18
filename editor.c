@@ -147,7 +147,7 @@ int doc_insert_bytes(const uint8_t *bytes, size_t len) {
 
 size_t doc_temp_insert(uint8_t *keypress, uint8_t *buf) {
     new_doc->data[new_doc->len] = *keypress;  
-    buf = new_doc->data;
+    *buf = *new_doc->data;
     new_doc->len++;
     new_doc->cursor++;
     return new_doc->len;
