@@ -130,7 +130,7 @@ size_t check_keys(uint8_t *buf) {
 
     printf("Checking keys...\n");
 
-    if (input == NULL || conv_buf == NULL) {
+    if (input == NULL) {
         fprintf(stderr, "input or conv_buf is NULL\n");
         return 0;
     }
