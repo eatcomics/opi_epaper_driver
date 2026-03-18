@@ -107,10 +107,11 @@ int main (void) {
             cursor = get_cursor_pos();
             */
             doc_len = doc_temp_insert(&key, doc);
+
+            printf("Doc = %c", *doc);
         }
 
         cursor = doc_temp_cur();
-        printf("cur_doc = %c", *doc);
 
         // Update Screen
         handle_screen(doc, doc_len, cursor);
