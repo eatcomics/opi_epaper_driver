@@ -160,15 +160,14 @@ size_t check_keys(uint8_t *buf) {
             conv_buf->key_buf[i] = keycode_to_ascii(input->key_buf[i], 0);
             conv_buf->len++;
         }
-    }
-
-    if (conv_buf != NULL) {
+        
         printf("Returning buffer length: %zu...\n", conv_buf->len);
         buf = conv_buf->key_buf;
         len = conv_buf->len;
 
         free(conv_buf);
     }
+
     return len;
 }
 
