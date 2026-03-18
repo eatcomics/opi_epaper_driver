@@ -130,13 +130,10 @@ size_t check_keys(uint8_t *buf) {
 
     printf("Checking keys...\n");
 
-    if (input == NULL) {
-        fprintf(stderr, "input or conv_buf is NULL\n");
-        return 0;
-    }
-
+    if (input != NULL && conv_buff != NULL)
     if (input->len >= MAX_KEY_BUFFER) {
         input->len = 0;
+        conv_buff->len = 0;
     }
 
     printf("Reading keys...\n");
