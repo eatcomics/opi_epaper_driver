@@ -96,12 +96,14 @@ int main (void) {
     // Main Editor Loop
     printf("Entering main loop...\n");
     while (run && !cleanup_requested) {
-        // Check for input (and if enough input, set screen damage)
+        // Check for input 
         key = check_keys(&key); 
 
         // Handle input in file
-        doc_insert_bytes(&key, 1);
-        cursor = get_cursor_pos();
+        if (key != 0 && key) {
+            doc_insert_bytes(&key, 1);
+            cursor = get_cursor_pos();
+        }
 
         // Update Screen
         handle_screen(doc, doc_len, cursor);
