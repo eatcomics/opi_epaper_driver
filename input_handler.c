@@ -99,11 +99,8 @@ uint8_t check_keys() {
     printf("Checking keys...\n");
 
     if (read_key_event(&keycode, &modifiers) == 1) {
-        input->key_buf[input->len] = keycode;
-        input->len++;
+        conv_key = keycode_to_ascii(keycode, 0);
     }
-
-    conv_key = keycode_to_ascii(keycode, 0);
         
     return conv_key;
 }
