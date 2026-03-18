@@ -142,7 +142,7 @@ size_t check_keys(uint8_t *buf) {
         read_key_event(&keycode, &modifiers);
         if (keycode != NULL && input->len != 0) {
             input->len += 1;
-            input->key_buf[input->len-1] = keycode;
+            input->key_buf[input->len] = keycode;
         }
     }
 
