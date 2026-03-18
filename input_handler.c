@@ -126,38 +126,50 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 }
 
 size_t check_keys(uint8_t *buf) {
-    // this isn't initialized and I don't know what it's supposed to be... ruh roh
-    uint32_t *keycode = NULL; // does making it NULL work?
-
+    size_t check_keys(uint8_t *buf) {
+    uint32_t keycode = 0;
 
     printf("Checking keys...\n");
+
+    if (input == NULL || conv_buf == NULL) {
+        fprintf(stderr, "input or conv_buf is NULL\n");
+        return 0;
+    }
+
     if (input->len >= MAX_KEY_BUFFER) {
         input->len = 0;
     }
-    
-    //We'll read a few times, just in case multiple keys are hit at once
+
     printf("Reading keys...\n");
-    // THIS IS SEGFAULTING BUB
+
     for (int i = 0; i < 3; i++) {
-        read_key_event(&keycode, &modifiers);
-        if (keycode != NULL && input->len != 0) {
-            input->len += 1;
-            input->key_buf[input->len-1] = *keycode;
+        if (read_key_event(keycode, modifiers) == 0) {  // assuming 0 = success
+            if (input->len < MAX_KEY_BUFFER) {
+                input->key_buf[input->len] = keycode;
+                input->len++;
+            }
         }
     }
 
-    if (input->len >= MAX_KEY_BUFFER) {
-        printf("Max buffer achieved, converting to uint8_t...\n");
-        conv_buf->key_buf = malloc((size_t)10);
+    if (input->len > 0) {
+        free(conv_buf->key_buf);
+        conv_buf->key_buf = malloc(input->len);
+        if (conv_buf->key_buf == NULL) {
+            fprintf(stderr, "malloc failed\n");
+            conv_buf->len = 0;
+            return 0;
+        }
+
         conv_buf->len = 0;
         for (size_t i = 0; i < input->len; i++) {
-            conv_buf->key_buf[i] = keycode_to_ascii(input->key_buf[i], 0); 
-            conv_buf->len += 1;
+            conv_buf->key_buf[i] = keycode_to_ascii(input->key_buf[i], 0);
+            conv_buf->len++;
         }
     }
 
-    printf("Returning buffer length: %d...\n", conv_buf->len);
+    printf("Returning buffer length: %zu...\n", conv_buf->len);
     return conv_buf->len;
+}
 }
 
 // Complete key mapping table for Linux input event codes to ASCII
