@@ -101,9 +101,14 @@ int main (void) {
 
         // Handle input in file
         if (key != 0 && key) {
+            /*
             doc_insert_bytes(&key, 1);
             cursor = get_cursor_pos();
+            */
+            doc_len = doc_temp_insert(&key, doc);
         }
+
+        cursor = doc_temp_cur();
 
         // Update Screen
         handle_screen(doc, doc_len, cursor);

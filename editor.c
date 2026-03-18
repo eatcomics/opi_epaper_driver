@@ -17,6 +17,14 @@
 
 typedef struct {
     uint8_t *data;
+    size_t len;
+    size_t cursor;
+} Temp_File;
+
+Temp_File *new_doc;
+
+typedef struct {
+    uint8_t *data;
     size_t size;
 } File_Buffer;
 
@@ -80,6 +88,11 @@ Doc *doc;
 // Should really just overload this into two functions
 int editor_init(int new_file_flag) {
     // create an unchangeable file buffer of size 0
+    new_doc = malloc(sizeof(Temp_File)); 
+    new_doc->data = malloc(sizeof(uint8_t)*750); // 750 chars for testing
+    new_doc->len = 0;
+    new_doc->cursor = 0;
+    
     if (new_file_flag == 1) {
         doc = malloc(sizeof(Doc));
 
@@ -112,6 +125,7 @@ int editor_init(int new_file_flag) {
 }
 
 void editor_destroy () {
+    free(new_doc);
     free(doc->original_buf.data);
     free(doc->add.data);
     free(doc->pieces.v);
@@ -129,6 +143,18 @@ int doc_insert_bytes(const uint8_t *bytes, size_t len) {
     doc->len += len;
     doc->cur_pos += len;
     return 0;
+}
+
+size_t doc_temp_insert(uint8_t *keypress, uint8_t *buf) {
+    new_doc->data[new_doc->len] = *keypress;  
+    buf = new_doc->data;
+    new_doc->len++;
+    new_doc->cursor++;
+    return new_doc->len;
+}
+
+size_t doc_temp_cur(){
+    return new_doc->cursor;
 }
 
 size_t get_cursor_pos() {
