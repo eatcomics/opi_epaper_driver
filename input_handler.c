@@ -163,7 +163,6 @@ size_t check_keys(uint8_t *buf) {
         
         printf("Returning buffer length: %zu...\n", conv_buf->len);
         buf = conv_buf->key_buf;
-        len = conv_buf->len;
     }
 
     return conv_buf->len;
