@@ -27,8 +27,8 @@ static int current_doc_len = 0;
 
 static struct {
     char ch;
-    uint8_t fg_color;
-    uint8_t bg_color;
+    int fg_color;
+    int bg_color;
     uint8_t attrs; // bold, underline, etc.
 } screen_buffer[ED_ROWS][ED_COLS]; // Max size
 
@@ -170,6 +170,7 @@ static void screen_render() {
     printf("Rendered %d characters\n", rendered_chars);
 }
 
+// I think something is wrong with row++ and col++, that doesn't seem right
 void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
     int row, col = 0;
     
@@ -182,11 +183,21 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
             if (i % 80 == 0) {
                 //new line
                 row++;
-                col++;
+                col = 0;
+
+                /* WAS:
+                   row++;
+                   col++;
+
+                   and there was no col++ outside the else
+                 */
             }
+            col++;
         }
 
         screen_buffer[row][col].ch = doc[i];
+        screen_buffer[row][col].fg_color = COLOR_BLACK;
+        screen_buffer[row][col].bg_color = COLOR_WHITE;
     } 
 }
 
