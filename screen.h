@@ -6,6 +6,7 @@
 
 int screen_init();
 void screen_destroy();
+void set_screen_damage();
 
 int handle_screen(uint8_t *doc, size_t doc_len, size_t cursor_pos);
 

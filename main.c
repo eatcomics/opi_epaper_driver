@@ -109,6 +109,9 @@ int main (void) {
             doc[doc_len] = key;
             doc_len++;
             printf("Doc = %s\n", doc);
+            if (doc_len % 5) {
+                set_screen_damage();
+            }
         }
 
         cursor = doc_temp_cur();
