@@ -101,6 +101,7 @@ int main (void) {
 
         // Handle input in file
         if (key != 0 && key) {
+            printf("got a key boss: %c...\n");
             /*
             doc_insert_bytes(&key, 1);
             cursor = get_cursor_pos();
@@ -109,6 +110,7 @@ int main (void) {
         }
 
         cursor = doc_temp_cur();
+        printf("cur_doc = %c", *doc);
 
         // Update Screen
         handle_screen(doc, doc_len, cursor);
