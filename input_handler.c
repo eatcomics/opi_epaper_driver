@@ -150,7 +150,6 @@ size_t check_keys(uint8_t *buf) {
         conv_buf->key_buf = malloc(input->len);
         if (conv_buf->key_buf == NULL) {
             fprintf(stderr, "malloc failed\n");
-            conv_buf->len = 0;
             return 0;
         }
 
@@ -162,9 +161,11 @@ size_t check_keys(uint8_t *buf) {
     }
 
     printf("Returning buffer length: %zu...\n", conv_buf->len);
+    buf = conv_buf->key_buf;
     len = conv_buf->len;
+
     free(conv_buf);
-    return conv_buf->len;
+    return len;
 }
 
 
