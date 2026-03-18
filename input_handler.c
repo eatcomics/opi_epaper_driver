@@ -126,7 +126,6 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
 }
 
 size_t check_keys(uint8_t *buf) {
-    size_t check_keys(uint8_t *buf) {
     uint32_t keycode = 0;
 
     printf("Checking keys...\n");
@@ -170,7 +169,7 @@ size_t check_keys(uint8_t *buf) {
     printf("Returning buffer length: %zu...\n", conv_buf->len);
     return conv_buf->len;
 }
-}
+
 
 // Complete key mapping table for Linux input event codes to ASCII
 static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
