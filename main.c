@@ -91,6 +91,7 @@ int main (void) {
     uint8_t key;
     size_t cursor = 0;
     uint8_t *doc;
+    doc = malloc(sizeof(uint8_t)*1920);
     uint8_t doc_len = 0;
     
     // Main Editor Loop
@@ -108,7 +109,9 @@ int main (void) {
             */
             doc_len = doc_temp_insert(&key, doc);
 
-            printf("Doc = %c", *doc);
+            doc[doc_len+1] = '\0';
+            doc_len++;
+            printf("Doc = %s", doc);
         }
 
         cursor = doc_temp_cur();
