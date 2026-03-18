@@ -71,7 +71,7 @@ int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) {
         printf("Screen has pending damage, adding to framebuffer\n");
         // take doc and process it into something the screen functions can use
         map_doc_coords(doc, len, cursor_pos);
-        //screen_full_draw(); 
+        screen_full_draw(); 
         damage_pending = 0; // reset the damange pending, no need to draw now
     }
 
