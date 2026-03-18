@@ -20,23 +20,6 @@ static int is_keyboard_device(struct udev_device *dev) {
 static uint8_t keycode_to_ascii(uint32_t keycode, int shift_pressed);
 
 int keyboard_init(void) {
-    // Init the key input buffer
-    input = malloc(sizeof(KeyBuffer));
-    if (!input) {
-        perror("malloc input");
-        return -1;
-    }
-
-    input->key_buf = malloc(10 * sizeof(uint32_t));
-    if (!input->key_buf) {
-        perror("malloc input->key_buf");
-        free(input);
-        input = NULL;
-        return -1;
-    }
-    
-    input->len = 0;
-    
     struct udev *udev = udev_new();
     if (!udev) {
         fprintf(stderr, "keyboard_init: failed to create udev\n");
