@@ -143,7 +143,7 @@ size_t check_keys(uint8_t *buf) {
     printf("Reading keys...\n");
 
     for (int i = 0; i < 3; i++) {
-        if (read_key_event(keycode, modifiers) == 0) {  // assuming 0 = success
+        if (read_key_event(&keycode, &modifiers) == 0) {  // assuming 0 = success
             if (input->len < MAX_KEY_BUFFER) {
                 input->key_buf[input->len] = keycode;
                 input->len++;
