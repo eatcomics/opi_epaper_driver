@@ -100,6 +100,7 @@ uint8_t check_keys() {
 
     if (read_key_event(&keycode, &modifiers) == 1) {
         conv_key = keycode_to_ascii(keycode, 0);
+        printf("key pressed: %c...\n", conv_key);
     }
         
     return conv_key;
