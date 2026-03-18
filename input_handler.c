@@ -96,8 +96,6 @@ uint8_t check_keys() {
     uint32_t keycode = 0;
     uint8_t conv_key = 0;
 
-    printf("Checking keys...\n");
-
     if (read_key_event(&keycode, &modifiers) == 1) {
         conv_key = keycode_to_ascii(keycode, 0);
         printf("key pressed: %c...\n", conv_key);
