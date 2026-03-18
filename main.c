@@ -101,11 +101,13 @@ int main (void) {
         key_len = check_keys(keys); 
 
         // Handle input in file
-        doc_insert_bytes(keys, key_len);
-        cursor = get_cursor_pos();
+        if (key_len >= 10) {
+            doc_insert_bytes(keys, key_len);
+            cursor = get_cursor_pos();
 
-        // Update Screen
-        handle_screen(doc, doc_len, cursor);
+            // Update Screen
+            handle_screen(doc, doc_len, cursor);
+        }
     }
 
     // Clean Up
