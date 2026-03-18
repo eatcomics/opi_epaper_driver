@@ -4,10 +4,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-int keyboard_init(void);
-void keyboard_close(void);
+int keyboard_init();
+void keyboard_close();
 
 int read_key_event(uint32_t *keycode, int *modifiers);
-size_t check_keys(uint8_t *buf);
+uint8_t check_keys();
 
 #endif

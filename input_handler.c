@@ -12,25 +12,12 @@ unsigned long last_input_time;
 int inputs_since_draw = 0;
 int modifiers = 0;
 
-typedef struct {
-    uint32_t *key_buf;
-    size_t len;
-} KeyBuffer;
-
-typedef struct {
-    uint8_t *key_buf;
-    size_t len;
-} ConvertedKeyBuffer;
-
-KeyBuffer *input;
-ConvertedKeyBuffer *conv_buf;
-
 static int is_keyboard_device(struct udev_device *dev) {
     const char *kbd = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
     return (kbd && strcmp(kbd, "1") == 0);
 }
 
-static char keycode_to_ascii(uint32_t keycode, int shift_pressed);
+static uint8_t keycode_to_ascii(uint32_t keycode, int shift_pressed);
 
 int keyboard_init(void) {
     // Init the key input buffer
@@ -96,9 +83,6 @@ void keyboard_close(void) {
         close(kb_fd);
         kb_fd = -1;
     }
-
-    free(input);
-    free(conv_buf);
 }
 
 int read_key_event(uint32_t *keycode, int *modifiers) {
@@ -125,52 +109,25 @@ int read_key_event(uint32_t *keycode, int *modifiers) {
     return 0;
 }
 
-size_t check_keys(uint8_t *buf) {
+uint8_t check_keys() {
     uint32_t keycode = 0;
+    uint8_t conv_key = 0;
 
     printf("Checking keys...\n");
 
-    if (input != NULL) {
-        if (input->len >= MAX_KEY_BUFFER) {
-            input->len = 0;
-        }
+    if (read_key_event(&keycode, &modifiers) == 1) {
+        input->key_buf[input->len] = keycode;
+        input->len++;
     }
 
-    printf("Reading keys...\n");
-
-    for (int i = 0; i < 3; i++) {
-        if (read_key_event(&keycode, &modifiers) == 1) { 
-            if (input->len < MAX_KEY_BUFFER) {
-                input->key_buf[input->len] = keycode;
-                input->len++;
-            }
-        }
-    }
-
-    if (input->len >= MAX_KEY_BUFFER) {
-        conv_buf->key_buf = malloc(input->len);
-
-        if (conv_buf->key_buf == NULL) {
-            fprintf(stderr, "malloc failed\n");
-            return 0;
-        }
-
-        conv_buf->len = 0;
-        for (size_t i = 0; i < input->len; i++) {
-            conv_buf->key_buf[i] = keycode_to_ascii(input->key_buf[i], 0);
-            conv_buf->len++;
-        }
+    conv_key = keycode_to_ascii(keycode, 0);
         
-        printf("Returning buffer length: %zu...\n", conv_buf->len);
-        buf = conv_buf->key_buf;
-    }
-
-    return conv_buf->len;
+    return conv_key;
 }
 
 
 // Complete key mapping table for Linux input event codes to ASCII
-static char keycode_to_ascii(uint32_t keycode, int shift_pressed) {
+static uint8_t keycode_to_ascii(uint32_t keycode, int shift_pressed) {
     // Handle letters (KEY_Q=16, KEY_W=17, KEY_E=18, etc.)
     switch (keycode) {
         // QWERTY row 1
