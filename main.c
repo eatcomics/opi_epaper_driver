@@ -89,15 +89,14 @@ int main (void) {
 
     int run = 1;
     uint8_t key;
-    size_t cursor;
+    size_t cursor = 0;
     uint8_t *doc;
-    uint8_t doc_len;
+    uint8_t doc_len = 0;
     
     // Main Editor Loop
     printf("Entering main loop...\n");
     while (run && !cleanup_requested) {
         // Check for input (and if enough input, set screen damage)
-        /* You're supposed to fix this. Keycode isn't initialized... wtf you doin? */
         key = check_keys(&key); 
 
         // Handle input in file
