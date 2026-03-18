@@ -98,7 +98,6 @@ int main (void) {
     printf("Entering main loop...\n");
     while (run && !cleanup_requested) {
         // Check for input (and if enough input, set screen damage)
-        /* You're supposed to fix this. Keycode isn't initialized... wtf you doin? */
         key_len = check_keys(keys); 
 
         // Handle input in file

@@ -119,6 +119,7 @@ void editor_destroy () {
 }
 
 int doc_insert_bytes(const uint8_t *bytes, size_t len) {
+    printf("Entering doc_insert_bytes\n");
     size_t add_off;
     if (add_append(&doc->add, bytes, len, &add_off) != 0) return -1;
 
@@ -132,6 +133,7 @@ int doc_insert_bytes(const uint8_t *bytes, size_t len) {
 }
 
 size_t get_cursor_pos() {
+    printf("returning cursor position\n");
     return doc->cur_pos;
 } 
 
