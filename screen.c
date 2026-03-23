@@ -200,7 +200,7 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
             break;
         } else if (i > 1920) {
             printf("i is < 1920 - Breaking]n");
-            break
+            break;
         } else {
             printf("is i mod 80 == 0? ");
             if (i % 80 == 0) {
