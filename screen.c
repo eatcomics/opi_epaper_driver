@@ -21,9 +21,9 @@ static size_t buffer_size = (SCREEN_WIDTH * SCREEN_HEIGHT / 8);
 static uint8_t *framebuffer = NULL;
 static int damage_pending = 1;
 static uint8_t *last_doc;
-static int last_doc_len = 0;
+static size_t last_doc_len = 0;
 static uint8_t *current_doc;
-static int current_doc_len = 0;
+static size_t current_doc_len = 0;
 
 static struct {
     char ch;
@@ -79,6 +79,7 @@ int screen_init() {
 int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) { 
     printf("Screen doc = %s\n", doc);
     printf("Screen doc len = %zu\n", len);
+    current_doc_len = len;
     
     // if we need to draw, do it
     if (damage_pending != 0) {
@@ -159,31 +160,33 @@ static void draw_char(int x, int y, char ch, int fg_color, int bg_color, uint8_t
 static void screen_render() {
     if (!framebuffer) return;
     
-    // Clear framebuffer to white
-    memset(framebuffer, 0xFF, buffer_size);
+    if (current_doc_len != 0) {
+        // Clear framebuffer to white
+        memset(framebuffer, 0xFF, buffer_size);
     
-    int rendered_chars = 0;
+        int rendered_chars = 0;
     
-    for (int r = 0; r < ED_ROWS; r++) {
-        for (int c = 0; c < ED_COLS; c++) {
-            if (screen_buffer[r][c].ch != ' ') {
-                int x = c * CELL_WIDTH;
-                int y = r * CELL_HEIGHT;
+        for (int r = 0; r < ED_ROWS; r++) {
+            for (int c = 0; c < ED_COLS; c++) {
+                if (screen_buffer[r][c].ch != ' ') {
+                    int x = c * CELL_WIDTH;
+                    int y = r * CELL_HEIGHT;
                 
-                if (x < SCREEN_WIDTH && y < SCREEN_HEIGHT) {
-                    draw_char(x, y, screen_buffer[r][c].ch,
-                             screen_buffer[r][c].fg_color,
-                             screen_buffer[r][c].bg_color,
-                             screen_buffer[r][c].attrs);
-                    rendered_chars++;
-                    printf("%s", screen_buffer[r][c].ch);
+                    if (x < SCREEN_WIDTH && y < SCREEN_HEIGHT) {
+                        draw_char(x, y, screen_buffer[r][c].ch,
+                                  screen_buffer[r][c].fg_color,
+                                  screen_buffer[r][c].bg_color,
+                                  screen_buffer[r][c].attrs);
+                        rendered_chars++;
+                        printf("%s", screen_buffer[r][c].ch);
+                    }
                 }
             }
         }
-    }
-    printf("\n");
+        printf("\n");
     
-    printf("Rendered %d characters\n", rendered_chars);
+        printf("Rendered %d characters\n", rendered_chars);
+    }
 }
 
 // I think something is wrong with row++ and col++, that doesn't seem right
