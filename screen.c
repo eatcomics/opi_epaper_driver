@@ -49,8 +49,6 @@ int screen_init() {
         return -1;
     }
 
-    printf("Screen Buffer Size: %zu\n", buffer_size);
-
     // Initialize buffer to white (all bits set to 1)
     memset(framebuffer, 0xFF, buffer_size);
     printf("Framebuffer allocated white: %zu bytes\n", buffer_size);
@@ -170,6 +168,7 @@ static void screen_render() {
     
         int rendered_chars = 0;
     
+        screen_buffer[2][6].ch = 'a';
         for (int r = 0; r < ED_ROWS; r++) {
             for (int c = 0; c < ED_COLS; c++) {
                 if (screen_buffer[r][c].ch != ' ') {
@@ -182,7 +181,6 @@ static void screen_render() {
                                   screen_buffer[r][c].bg_color,
                                   screen_buffer[r][c].attrs);
                         rendered_chars++;
-                        printf("%s", screen_buffer[r][c].ch);
                     }
                 }
             }
