@@ -192,7 +192,8 @@ static void screen_render() {
 
 // I think something is wrong with row++ and col++, that doesn't seem right
 void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
-    int row, col = 0;
+    int row = 0;
+    int col = 0;
     
     for (int i = 0; i < doc_len; i++) {
         if (i < 0) {
