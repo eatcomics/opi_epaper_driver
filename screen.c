@@ -56,7 +56,8 @@ int screen_init() {
     printf("Attempting inital draw (all white)\n");
 
     if (framebuffer) {
-        screen_full_draw(); 
+        EPD_7IN5_V2_Display(framebuffer);
+        //screen_full_draw(); 
     } else {
         printf("Failed to draw screen\n");
         return -1;
