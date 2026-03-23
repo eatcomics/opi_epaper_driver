@@ -61,6 +61,16 @@ int screen_init() {
         printf("Failed to draw screen\n");
         return -1;
     }
+
+    // Initialize the screen buffer
+    for (int r = 0; r < ED_ROWS; r++) {
+        for (int c = 0; c < ED_COLS; c++) {
+            screen_buffer[r][c].ch = ' ';
+            screen_buffer[r][c].fg_color = COLOR_BLACK;
+            screen_buffer[r][c].bg_color = COLOR_WHITE;
+            screen_buffer[r][c].attrs = 0;
+        }
+    }
     
     return 0;
 }
