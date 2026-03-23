@@ -204,7 +204,7 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
         } else {
             printf("is i mod 80 == 0? ");
             if (i % 80 == 0) {
-                printf("yes\n");
+                printf("yes. i = %u\n", i);
                 //new line
                 row++;
                 col = 0;
