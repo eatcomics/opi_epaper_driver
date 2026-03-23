@@ -76,6 +76,9 @@ int screen_init() {
 }
 
 int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) { 
+    printf("Screen doc = %s\n", doc);
+    printf("Screen doc len = %zu\n", len);
+    
     // if we need to draw, do it
     if (damage_pending != 0) {
         printf("Screen has pending damage, adding to framebuffer\n");
@@ -172,10 +175,12 @@ static void screen_render() {
                              screen_buffer[r][c].bg_color,
                              screen_buffer[r][c].attrs);
                     rendered_chars++;
+                    printf("%s", screen_buffer[r][c].ch);
                 }
             }
         }
     }
+    printf("\n");
     
     printf("Rendered %d characters\n", rendered_chars);
 }
@@ -194,13 +199,6 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
                 //new line
                 row++;
                 col = 0;
-
-                /* WAS:
-                   row++;
-                   col++;
-
-                   and there was no col++ outside the else
-                 */
             }
         }
 
