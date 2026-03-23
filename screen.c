@@ -49,6 +49,8 @@ int screen_init() {
         return -1;
     }
 
+    printf("Screen Buffer Size: %zu\n", buffer_size);
+
     // Initialize buffer to white (all bits set to 1)
     memset(framebuffer, 0xFF, buffer_size);
     printf("Framebuffer allocated white: %zu bytes\n", buffer_size);
