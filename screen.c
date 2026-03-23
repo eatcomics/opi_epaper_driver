@@ -202,7 +202,6 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
             printf("i is < 1920 - Breaking\n");
             break;
         } else {
-            printf("is i mod 80 == 0? ");
             if (i != 0 && i % 80 == 0) {
                 printf("yes. i = %u\n", i);
                 //new line
