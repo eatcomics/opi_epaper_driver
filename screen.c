@@ -168,7 +168,6 @@ static void screen_render() {
     
         int rendered_chars = 0;
     
-        screen_buffer[2][6].ch = 'a';
         for (int r = 0; r < ED_ROWS; r++) {
             for (int c = 0; c < ED_COLS; c++) {
                 if (screen_buffer[r][c].ch != ' ') {
@@ -208,11 +207,13 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
             }
         }
 
+        printf("We are setting screen_buffer %c", screen_buffer[row][col].ch);
         screen_buffer[row][col].ch = doc[i];
         screen_buffer[row][col].fg_color = COLOR_BLACK;
         screen_buffer[row][col].bg_color = COLOR_WHITE;
         col++;
     } 
+    printf("\n");
 }
 
 void screen_full_draw() {
