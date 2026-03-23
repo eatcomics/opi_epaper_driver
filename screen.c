@@ -192,12 +192,12 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
                    and there was no col++ outside the else
                  */
             }
-            col++;
         }
 
         screen_buffer[row][col].ch = doc[i];
         screen_buffer[row][col].fg_color = COLOR_BLACK;
         screen_buffer[row][col].bg_color = COLOR_WHITE;
+        col++;
     } 
 }
 

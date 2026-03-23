@@ -109,7 +109,8 @@ int main (void) {
             doc[doc_len] = key;
             doc_len++;
             printf("Doc = %s\n", doc);
-            if (doc_len % 5) {
+            printf("Len = %zu\n",doc_len);
+            if (doc_len % 5 == 0) {
                 set_screen_damage();
             }
         }
