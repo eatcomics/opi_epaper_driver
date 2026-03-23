@@ -195,12 +195,12 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
     int row, col = 0;
     
     for (size_t i = 0; i < doc_len; i++) {
-        if (i <= 0) {
+        if (i < 0) {
             printf("i is > 0 - Breaking\n");
-            break; 
+            break;
         } else if (i > 1920) {
             printf("i is < 1920 - Breaking]n");
-            break;
+            break
         } else {
             printf("is i mod 80 == 0? ");
             if (i % 80 == 0) {
