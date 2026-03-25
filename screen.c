@@ -90,11 +90,13 @@ int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) {
         // take doc and process it into something the screen functions can use
         map_doc_coords(doc, len, cursor_pos);
 
-        if (drawn_chars == 0 || drawn_chars > 50) {
+        /*        if (drawn_chars == 0 || drawn_chars > 50) {
             screen_full_draw(); 
         } else {
             screen_partial_draw(); 
         }
+        */
+        screen_full_draw();
         damage_pending = 0; // reset the damange pending, no need to draw now
     }
 
@@ -210,20 +212,17 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
             break;
         } else {
             if (i != 0 && i % 80 == 0) {
-                printf("yes. i = %u\n", i);
                 //new line
                 row++;
                 col = 0;
             }
         }
 
-        printf("We are setting screen_buffer %c", screen_buffer[row][col].ch);
         screen_buffer[row][col].ch = doc[i];
         screen_buffer[row][col].fg_color = COLOR_BLACK;
         screen_buffer[row][col].bg_color = COLOR_WHITE;
         col++;
     } 
-    printf("\n");
 }
 
 void screen_full_draw() {
