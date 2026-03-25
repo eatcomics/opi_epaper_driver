@@ -93,10 +93,10 @@ int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) {
         // take doc and process it into something the screen functions can use
         map_doc_coords(doc, len, cursor_pos);
 
-        if (rendered_chars == 0 || rendered_chars > 50) {
+        if (drawn_chars == 0 || drawn_chars > 50) {
             screen_full_draw(); 
         } else {
-           screen_partial_draw 
+            screen_partial_draw(); 
         }
         damage_pending = 0; // reset the damange pending, no need to draw now
     }
