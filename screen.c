@@ -24,6 +24,7 @@ static uint8_t *last_doc;
 static size_t last_doc_len = 0;
 static uint8_t *current_doc;
 static size_t current_doc_len = 0;
+static int drawn_chars = 0;
 
 static struct {
     char ch;
@@ -39,7 +40,7 @@ static void screen_render();
 void map_doc_coords(uint8_t *doc, size_t len, size_t cursor);
 
 void screen_full_draw();
-void screen_partial_draw(uint8_t *buffer, int start_x, int start_y, int end_x, int end_y);
+void screen_partial_draw();
 
 int screen_init() {
     framebuffer = (uint8_t *)malloc(buffer_size);
@@ -77,6 +78,9 @@ int screen_init() {
 }
 
 int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) { 
+    if (rendered_chars == 0) {
+        
+    }
     current_doc_len = len;
     
     // if we need to draw, do it
@@ -88,7 +92,12 @@ int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) {
 
         // take doc and process it into something the screen functions can use
         map_doc_coords(doc, len, cursor_pos);
-        screen_full_draw(); 
+
+        if (rendered_chars == 0 || rendered_chars > 50) {
+            screen_full_draw(); 
+        } else {
+           screen_partial_draw 
+        }
         damage_pending = 0; // reset the damange pending, no need to draw now
     }
 
@@ -222,14 +231,29 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
 
 void screen_full_draw() {
     if (framebuffer) {
-        printf("Flushing display...\n");
+        printf("full draw\n");
         screen_render();
-        printf("Screen rendered. Sending to display...\n");
         EPD_7IN5_V2_Display(framebuffer);
+        drawn_chars++;
     }
 }
 
 
-void screen_partial_draw(uint8_t *buffer, int start_x, int start_y, int end_x, int end_y) {
-    // Uh, yeah, use the EPD function for this
+// I haven't added Y yet
+void screen_partial_draw() {
+    if (framebuffer) {
+        printf("partial draw\n");
+        screen_render();
+        // Basically, take however many chars have been drawn, and
+        //     figure out where the next char to draw is (just one at a time currently)
+        int sx = 0;
+        int sy = 0;
+        int ex = 0;
+        int ey = 0;
+        sx = drawn_chars * CELL_WIDTH;
+        ex = (drawn_chars + 1) * CELL_WIDTH;
+        ey = CELL_HEIGHT;
+        EPD_7IN5_V2_Display_Part(framebuffer, sx, sy, ex, ey);
+        drawn_chars++;
+    }
 }

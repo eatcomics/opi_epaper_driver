@@ -98,7 +98,7 @@ int main (void) {
     printf("Entering main loop...\n");
     while (run && !cleanup_requested) {
         // Check for input 
-        key = check_keys(&key); 
+        key = check_keys(); 
 
         // Handle input in file
         if (key != 0)  {
