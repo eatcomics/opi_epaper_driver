@@ -78,9 +78,6 @@ int screen_init() {
 }
 
 int handle_screen(uint8_t *doc, size_t len, size_t cursor_pos) { 
-    if (rendered_chars == 0) {
-        
-    }
     current_doc_len = len;
     
     // if we need to draw, do it
