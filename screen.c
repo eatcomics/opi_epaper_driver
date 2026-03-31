@@ -227,6 +227,7 @@ void map_doc_coords(uint8_t *doc, size_t doc_len, size_t cursor) {
 
 void screen_full_draw() {
     if (framebuffer) {
+        EPD_7IN5_V2_Init();
         printf("full draw\n");
         screen_render();
         EPD_7IN5_V2_Display(framebuffer);
@@ -236,8 +237,13 @@ void screen_full_draw() {
 
 
 // I haven't added Y yet
+// Do we need to init part? Do we have to close the full init? Wtf am I doing?
+// Display_Part says it sends a command to make the display enter partial mode
+// Do I just need to send the single character as a framebuffer? Maybe I shouldn't
+//     send the whole thing?
 void screen_partial_draw() {
     if (framebuffer) {
+        EPD_7IN5_V2_Init_Part();
         printf("partial draw\n");
         screen_render();
         // Basically, take however many chars have been drawn, and
